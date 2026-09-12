@@ -90,7 +90,7 @@ deepseek-official
 
 The browser half registers an **Auto Router** page in DSH's settings panel
 (gear icon → sidebar). It renders the current routing policy — the same
-`<dsh-auto-model-router-status>` report the host injects on session start —
+`<mydsh-auto-model-router-status>` report the host injects on session start —
 with a hint telling you to change the configuration through AI conversation:
 just tell the agent in chat (e.g. *"change L2 to deepseek-v4-flash with max
 reasoning"* or *"switch cost mode to cost-first"*), and the AI edits
@@ -106,7 +106,7 @@ from `client/`).
 ## Install
 
 ```bash
-dsh plugin --profile web add ./dsh-auto-model-router
+dsh plugin --profile web add ./mydsh-auto-model-router
 ```
 
 Or via the published npm package:

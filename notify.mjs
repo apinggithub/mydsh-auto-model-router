@@ -19,8 +19,8 @@
 // 3. DOWNGRADE: when the session budget trips, notify or ask per
 //    costControl.downgradeBehavior (also bilingual).
 
-export const PLUGIN_SOURCE = 'dsh-auto-model-router'
-const ASKED_KEY = Symbol('dsh-auto-model-router.asked')
+export const PLUGIN_SOURCE = 'mydsh-auto-model-router'
+const ASKED_KEY = Symbol('mydsh-auto-model-router.asked')
 
 // ── i18n ─────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ const STRINGS = {
     classifierEnabled: 'LLM classifier: enabled',
     classifierDisabled: 'LLM classifier: disabled',
     fallback: 'Fallback chain',
-    statusFooter: "Adjust these in your profile's cordis.patch.yml under the dsh-auto-model-router config block, or answer the question below to switch the cost mode now.",
+    statusFooter: "Adjust these in your profile's cordis.patch.yml under the mydsh-auto-model-router config block, or answer the question below to switch the cost mode now.",
     askHeader: 'Model Router',
     q1: 'Do you want to change the Tier-1 matching rules?',
     q1Keep: 'Keep current rules',
@@ -52,7 +52,7 @@ const STRINGS = {
     q3CustomHint: 'Type which setting to inspect (e.g. budget, fallbackChain, classifier)',
     rulesView: 'Current Tier-1 rules:',
     rulesViewEmpty: 'No rules configured.',
-    rulesViewFooter: 'To change a rule, edit the dsh-auto-model-router `rules` block in cordis.patch.yml.',
+    rulesViewFooter: 'To change a rule, edit the mydsh-auto-model-router `rules` block in cordis.patch.yml.',
     settingUnknown: 'Unknown setting "{{name}}". Known: budget, fallbackChain, classifier, rules.',
     budgetDetail: 'costControl.tokenBudgetPerSession = {{value}} tokens',
     fallbackDetail: 'fallbackChain: {{value}}',
@@ -90,7 +90,7 @@ const STRINGS = {
     classifierEnabled: 'LLM 分类器：已启用',
     classifierDisabled: 'LLM 分类器：未启用',
     fallback: '降级链',
-    statusFooter: '可在 profile 的 cordis.patch.yml 中 dsh-auto-model-router 配置块调整以上项，或回答下面的问题立即切换成本模式。',
+    statusFooter: '可在 profile 的 cordis.patch.yml 中 mydsh-auto-model-router 配置块调整以上项，或回答下面的问题立即切换成本模式。',
     askHeader: '模型路由插件',
     q1: '是否需要更改 Tier-1 匹配规则？',
     q1Keep: '保持现有规则',
@@ -106,7 +106,7 @@ const STRINGS = {
     q3CustomHint: '输入要检查的配置名（如 budget、fallbackChain、classifier）',
     rulesView: '当前 Tier-1 规则：',
     rulesViewEmpty: '未配置规则。',
-    rulesViewFooter: '要修改规则，请编辑 cordis.patch.yml 中 dsh-auto-model-router 的 rules 配置块。',
+    rulesViewFooter: '要修改规则，请编辑 cordis.patch.yml 中 mydsh-auto-model-router 的 rules 配置块。',
     settingUnknown: '未知配置 "{{name}}"。可选：budget、fallbackChain、classifier、rules。',
     budgetDetail: 'costControl.tokenBudgetPerSession = {{value}} tokens',
     fallbackDetail: 'fallbackChain：{{value}}',
@@ -158,7 +158,7 @@ export function resolveLocale(ctx) {
  */
 export function statusReport(config, locale = 'en') {
   const t = STRINGS[locale] ?? STRINGS.en
-  const lines = ['<dsh-auto-model-router-status>', t.statusTitle, '', t.levels]
+  const lines = ['<mydsh-auto-model-router-status>', t.statusTitle, '', t.levels]
   for (const id of ['L0', 'L1', 'L2', 'L3']) {
     const route = config.levels[id]
     lines.push(`- ${id}: ${route
@@ -175,7 +175,7 @@ export function statusReport(config, locale = 'en') {
   if (config.fallbackChain.length > 0) {
     lines.push(`${t.fallback}: ${config.fallbackChain.map(r => `${r.provider}/${r.model}`).join(' → ')}`)
   }
-  lines.push('', t.statusFooter, '</dsh-auto-model-router-status>')
+  lines.push('', t.statusFooter, '</mydsh-auto-model-router-status>')
   return lines.join('\n')
 }
 
@@ -225,7 +225,7 @@ export async function reportStatus(agent, config, locale = 'en') {
   return injectInto(agent, statusReport(config, locale), 'status')
 }
 
-export const STATUS_STORAGE_KEY = 'dsh-auto-model-router:status'
+export const STATUS_STORAGE_KEY = 'mydsh-auto-model-router:status'
 
 /**
  * Persist the status report to localStorage so the browser settings section
@@ -280,7 +280,7 @@ export async function askOnce(ctx, agent, router) {
       agent,
       questions: [
         {
-          id: 'dsh-auto-model-router.q1-rules',
+          id: 'mydsh-auto-model-router.q1-rules',
           header: t.askHeader,
           question: t.q1,
           detail: statusReport(router.config, locale),
@@ -290,7 +290,7 @@ export async function askOnce(ctx, agent, router) {
           ],
         },
         {
-          id: 'dsh-auto-model-router.q2-cost-mode',
+          id: 'mydsh-auto-model-router.q2-cost-mode',
           header: t.askHeader,
           question: t.q2,
           detail: statusReport(router.config, locale),
@@ -302,7 +302,7 @@ export async function askOnce(ctx, agent, router) {
           ],
         },
         {
-          id: 'dsh-auto-model-router.q3-other',
+          id: 'mydsh-auto-model-router.q3-other',
           header: t.askHeader,
           question: t.q3,
           detail: statusReport(router.config, locale),
@@ -315,9 +315,9 @@ export async function askOnce(ctx, agent, router) {
     })
 
     const byId = new Map((answer?.answers ?? []).map(item => [item.id, item]))
-    const q1 = byId.get('dsh-auto-model-router.q1-rules')
-    const q2 = byId.get('dsh-auto-model-router.q2-cost-mode')
-    const q3 = byId.get('dsh-auto-model-router.q3-other')
+    const q1 = byId.get('mydsh-auto-model-router.q1-rules')
+    const q2 = byId.get('mydsh-auto-model-router.q2-cost-mode')
+    const q3 = byId.get('mydsh-auto-model-router.q3-other')
 
     const viewedRules = q1?.selected?.includes(t.q1View) ?? false
     if (viewedRules) {
@@ -348,7 +348,7 @@ export async function askOnce(ctx, agent, router) {
  */
 export function rulesReport(config, locale = 'en') {
   const t = STRINGS[locale] ?? STRINGS.en
-  const lines = ['<dsh-auto-model-router-rules>', t.rulesView]
+  const lines = ['<mydsh-auto-model-router-rules>', t.rulesView]
   if (config.rules.length === 0) {
     lines.push(`- ${t.rulesViewEmpty}`)
   } else {
@@ -356,7 +356,7 @@ export function rulesReport(config, locale = 'en') {
       lines.push(`- ${rule.match} → ${rule.level}`)
     }
   }
-  lines.push(t.rulesViewFooter, '</dsh-auto-model-router-rules>')
+  lines.push(t.rulesViewFooter, '</mydsh-auto-model-router-rules>')
   return lines.join('\n')
 }
 
@@ -387,7 +387,7 @@ export function settingReport(config, locale = 'en', name) {
   } else {
     detail = t.settingUnknown.replace('{{name}}', name)
   }
-  return ['<dsh-auto-model-router-setting>', detail, '</dsh-auto-model-router-setting>'].join('\n')
+  return ['<mydsh-auto-model-router-setting>', detail, '</mydsh-auto-model-router-setting>'].join('\n')
 }
 
 // ── budget downgrade ─────────────────────────────────────────────────────
@@ -408,7 +408,7 @@ export function downgradeNotice(config, sessionId, locale = 'en') {
     .replaceAll('{{session}}', sessionId)
     .replaceAll('{{budget}}', config.costControl.tokenBudgetPerSession.toLocaleString())
     .replaceAll('{{model}}', cheap)
-  return `<dsh-auto-model-router-downgrade>\n${body}\n</dsh-auto-model-router-downgrade>`
+  return `<mydsh-auto-model-router-downgrade>\n${body}\n</mydsh-auto-model-router-downgrade>`
 }
 
 /**
@@ -444,7 +444,7 @@ export async function askDowngrade(ctx, agent, router, sessionId) {
     const answer = await userQuestions.ask({
       agent,
       questions: [{
-        id: 'dsh-auto-model-router.downgrade',
+        id: 'mydsh-auto-model-router.downgrade',
         header: t.downgradeTitle,
         question: t.downgradeQuestion.replace('{{session}}', sessionId),
         detail: downgradeNotice(router.config, sessionId, locale),
@@ -484,7 +484,7 @@ export async function askModeSelection(ctx, agent, router, sessionId) {
     const answer = await userQuestions.ask({
       agent,
       questions: [{
-        id: 'dsh-auto-model-router.mode',
+        id: 'mydsh-auto-model-router.mode',
         header: t.askHeader,
         question: t.lockCrossedQuestion,
         options: [
@@ -500,7 +500,7 @@ export async function askModeSelection(ctx, agent, router, sessionId) {
       const levelAnswer = await userQuestions.ask({
         agent,
           questions: [{
-          id: 'dsh-auto-model-router.fixed-level',
+          id: 'mydsh-auto-model-router.fixed-level',
           header: t.askHeader,
           question: t.fixedLevelQuestion,
           options: ['L0', 'L1', 'L2', 'L3'].map(level => ({
@@ -538,7 +538,7 @@ export async function askFixedLevel(ctx, agent, router, sessionId) {
     const answer = await userQuestions.ask({
       agent,
       questions: [{
-        id: 'dsh-auto-model-router.fixed-reelect',
+        id: 'mydsh-auto-model-router.fixed-reelect',
         header: t.askHeader,
         question: t.fixedReelectQuestion,
         options: ['L0', 'L1', 'L2', 'L3'].map(level => ({

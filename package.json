@@ -1,5 +1,5 @@
 {
-  "name": "@adverts13/dsh-auto-model-router",
+  "name": "@apinggithub/mydsh-auto-model-router",
   "version": "0.1.1",
   "description": "Hybrid model router for DeepSeek Harness: declarative rules, user-configurable cost control (cost-first / quality-first / balanced), optional LLM task classifier, and failure fallback chains.",
   "type": "module",
@@ -61,11 +61,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ADVeRTs13/dsh-auto-model-router.git"
+    "url": "git+https://github.com/apinggithub/mydsh-auto-model-router.git"
   },
-  "homepage": "https://github.com/ADVeRTs13/dsh-auto-model-router#readme",
+  "homepage": "https://github.com/apinggithub/mydsh-auto-model-router#readme",
   "bugs": {
-    "url": "https://github.com/ADVeRTs13/dsh-auto-model-router/issues"
+    "url": "https://github.com/apinggithub/mydsh-auto-model-router/issues"
   },
   "license": "MIT"
 }

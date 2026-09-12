@@ -68,7 +68,7 @@ export const AutoAdapter = {
       }
     }
     throw new Error(
-      'dsh-auto-model-router: request reached the virtual "auto" provider with no router '
+      'mydsh-auto-model-router: request reached the virtual "auto" provider with no router '
       + 'decision available. Check that the plugin is mounted.',
     )
   },

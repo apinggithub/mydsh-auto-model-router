@@ -76,7 +76,7 @@ deepseek-official
 
 浏览器端会在 DSH 设置面板（齿轮图标 → 侧栏）注册一个 **Auto Router**
 页签，展示当前路由策略——即 host 在会话开始时注入的
-`<dsh-auto-model-router-status>` 状态报告——并附提示文案：如需修改配置，
+`<mydsh-auto-model-router-status>` 状态报告——并附提示文案：如需修改配置，
 直接在对话中告诉 AI（例如"把 L2 改成 deepseek-v4-flash 且 max 思考"或
 "成本模式切换为 cost-first"），AI 会帮你编辑 `cordis.patch.yml`，
 重启 DSH 后生效。
@@ -111,7 +111,7 @@ dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
       isolate:
         modelRouter: true
       config:
-        - id: dsh-auto-model-router-runtime
+        - id: mydsh-auto-model-router-runtime
           name: '@apinggithub/mydsh-auto-model-router'
           config:
             # ── 四个层级（出厂默认）────────────────────────────────────

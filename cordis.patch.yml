@@ -1,11 +1,11 @@
-# dsh-auto-model-router — the cordis patch layer. Mounts the router inside an
+# mydsh-auto-model-router — the cordis patch layer. Mounts the router inside an
 # isolated group; the runtime registers model-facing hooks on agent scopes.
 - insert:
-    - id: dsh-auto-model-router
+    - id: mydsh-auto-model-router
       name: '@deepseek-ai/cordis-plugin-group'
       group: true
       isolate:
         modelRouter: true
       config:
-        - id: dsh-auto-model-router-runtime
-          name: '@adverts13/dsh-auto-model-router'
+        - id: mydsh-auto-model-router-runtime
+          name: '@apinggithub/mydsh-auto-model-router'

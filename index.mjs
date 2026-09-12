@@ -1,4 +1,4 @@
-// dsh-auto-model-router plugin entry. Registers the routing layers onto the
+// mydsh-auto-model-router plugin entry. Registers the routing layers onto the
 // DSH agent lifecycle:
 //
 //   agent/pre-step          → token accounting + user-input boundary detection
@@ -27,7 +27,7 @@ import {
   askDowngrade, resolveLocale, askModeSelection, askFixedLevel,
 } from './notify.mjs'
 
-export const name = 'dsh-auto-model-router'
+export const name = 'mydsh-auto-model-router'
 export const inject = ['agents', 'sessions', 'tools', 'llm', 'tokenMeter']
 
 export function apply(ctx, input = {}) {
@@ -61,7 +61,7 @@ export function apply(ctx, input = {}) {
   )
 
   // ── HTTP status endpoint for the browser settings section ─────────────
-  // The client fetch()es /api/dsh-auto-model-router/status to render the
+  // The client fetch()es /api/mydsh-auto-model-router/status to render the
   // current routing policy (no localStorage / DOM-transcript dependency).
   // Uses ctx.get('webServer') so deployments without the webserver degrade
   // to settings-section "no report" instead of failing activation.
@@ -70,7 +70,7 @@ export function apply(ctx, input = {}) {
     if (webServer?.register === undefined) return
     const dispose = webServer.register({
       kind: 'exact',
-      path: '/api/dsh-auto-model-router/status',
+      path: '/api/mydsh-auto-model-router/status',
       handler: (_req, res) => {
         const body = JSON.stringify({
           ok: true,
@@ -148,7 +148,7 @@ export function apply(ctx, input = {}) {
     const proposed = await next()
     const sessionId = agent.session.id
     ctx.logger?.info?.(
-      `[dsh-auto-model-router] agent/request session=${sessionId} proposed=${proposed?.provider}/${proposed?.model} isAuto=${isAutoSelection(proposed)}`,
+      `[mydsh-auto-model-router] agent/request session=${sessionId} proposed=${proposed?.provider}/${proposed?.model} isAuto=${isAutoSelection(proposed)}`,
     )
     if (!isAutoSelection(proposed)) {
       router.markAutoInactive(sessionId)
@@ -219,7 +219,7 @@ export function apply(ctx, input = {}) {
     const fallback = router.nextOnFailure(sessionId, failedRoute)
     if (fallback) {
       ctx.logger?.info?.(
-        `[dsh-auto-model-router] ${sessionId}: request failed (${failure?.error?.code ?? 'unknown'}), falling back to ${fallback.provider}/${fallback.model}`,
+        `[mydsh-auto-model-router] ${sessionId}: request failed (${failure?.error?.code ?? 'unknown'}), falling back to ${fallback.provider}/${fallback.model}`,
       )
       return { kind: 'retry' }
     }

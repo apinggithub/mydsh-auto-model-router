@@ -1,13 +1,13 @@
 window.__ModuleLoader__.load({
-	id: "@adverts13/dsh-auto-model-router",
+	id: "@apinggithub/mydsh-auto-model-router",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		var _react = require("react");
 		//#region client/gate.mjs
-		const PLUGIN_ID = '@adverts13/dsh-auto-model-router'
-const NS = 'dsh-auto-model-router'
+		const PLUGIN_ID = '@apinggithub/mydsh-auto-model-router'
+const NS = 'mydsh-auto-model-router'
 
 const EN_COPY = {
   nav: 'Auto Router',
@@ -40,7 +40,7 @@ const copy = () => {
   return /^zh(?:-|$)/i.test(lang) ? ZH_COPY : EN_COPY
 }
 
-const STATUS_ENDPOINT = '/api/dsh-auto-model-router/status'
+const STATUS_ENDPOINT = '/api/mydsh-auto-model-router/status'
 
 /**
  * The settings section component. Rendered with _react.createElement from the
@@ -111,7 +111,7 @@ function apply(ctx) {
       label: () => t().nav,
       locale: NS,
     }, RouterSection))
-  }, 'dsh-auto-model-router: settings section')
+  }, 'mydsh-auto-model-router: settings section')
 }
 		//#endregion
 		//#region client/index.mjs

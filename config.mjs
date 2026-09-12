@@ -1,4 +1,4 @@
-// Config resolution and validation for dsh-auto-model-router (level-based design).
+// Config resolution and validation for mydsh-auto-model-router (level-based design).
 //
 // The router works over four capability levels (L0…L3); each level is a
 // provider/model route the user assigns. Three routing modes live on top:
@@ -107,15 +107,15 @@ function normalizeHeuristic(heuristic) {
   h.windowSize = clampInt(h.windowSize, 1, 20, DEFAULT_CONFIG.heuristic.windowSize)
   if (!COUNTING_MODES.includes(h.counting)) {
     throw new Error(
-      `dsh-auto-model-router: heuristic.counting must be one of ${COUNTING_MODES.join(', ')}, got "${h.counting}"`,
+      `mydsh-auto-model-router: heuristic.counting must be one of ${COUNTING_MODES.join(', ')}, got "${h.counting}"`,
     )
   }
   if (!Array.isArray(h.thresholds) || h.thresholds.length === 0) {
-    throw new Error('dsh-auto-model-router: heuristic.thresholds must be a non-empty array')
+    throw new Error('mydsh-auto-model-router: heuristic.thresholds must be a non-empty array')
   }
   h.thresholds = h.thresholds.map((t, index) => {
     if (!LEVEL_IDS.includes(t.level)) {
-      throw new Error(`dsh-auto-model-router: heuristic.thresholds[${index}].level must be one of ${LEVEL_IDS.join(', ')}`)
+      throw new Error(`mydsh-auto-model-router: heuristic.thresholds[${index}].level must be one of ${LEVEL_IDS.join(', ')}`)
     }
     const maxChars = t.maxChars === null || t.maxChars === undefined
       ? null
@@ -137,11 +137,11 @@ function normalizeScoring(scoring) {
   }
   s.weights = weights
   if (!Array.isArray(s.bands) || s.bands.length === 0) {
-    throw new Error('dsh-auto-model-router: scoring.bands must be a non-empty array')
+    throw new Error('mydsh-auto-model-router: scoring.bands must be a non-empty array')
   }
   s.bands = s.bands.map((b, index) => {
     if (!LEVEL_IDS.includes(b.level)) {
-      throw new Error(`dsh-auto-model-router: scoring.bands[${index}].level must be one of ${LEVEL_IDS.join(', ')}`)
+      throw new Error(`mydsh-auto-model-router: scoring.bands[${index}].level must be one of ${LEVEL_IDS.join(', ')}`)
     }
     return {
       maxScore: b.maxScore === null || b.maxScore === undefined
@@ -182,13 +182,13 @@ function normalizeLevelRoute(route, where) {
 
 function normalizeRoute(route, where) {
   if (route === undefined || route === null) {
-    throw new Error(`dsh-auto-model-router: "${where}" requires a provider/model route`)
+    throw new Error(`mydsh-auto-model-router: "${where}" requires a provider/model route`)
   }
   const provider = String(route.provider ?? '').trim()
   const model = String(route.model ?? '').trim()
   if (!provider || !model) {
     throw new Error(
-      `dsh-auto-model-router: "${where}" needs both provider and model, got ${JSON.stringify(route)}`,
+      `mydsh-auto-model-router: "${where}" needs both provider and model, got ${JSON.stringify(route)}`,
     )
   }
   const reasoningEffort = route.reasoningEffort === undefined
@@ -203,15 +203,15 @@ function normalizeRoute(route, where) {
 
 function normalizeRules(rules) {
   if (!Array.isArray(rules)) {
-    throw new Error('dsh-auto-model-router: "rules" must be an array')
+    throw new Error('mydsh-auto-model-router: "rules" must be an array')
   }
   return rules.map((rule, index) => {
     if (typeof rule.match !== 'string' || rule.match.trim() === '') {
-      throw new Error(`dsh-auto-model-router: rules[${index}] needs a non-empty "match" pattern`)
+      throw new Error(`mydsh-auto-model-router: rules[${index}] needs a non-empty "match" pattern`)
     }
     if (!LEVEL_IDS.includes(rule.level)) {
       throw new Error(
-        `dsh-auto-model-router: rules[${index}].level must be one of ${LEVEL_IDS.join(', ')}, got "${rule.level}"`,
+        `mydsh-auto-model-router: rules[${index}].level must be one of ${LEVEL_IDS.join(', ')}, got "${rule.level}"`,
       )
     }
     return {
@@ -234,7 +234,7 @@ function compilePattern(pattern, index) {
       return new RegExp(body, flags.includes('i') ? flags : `${flags}i`)
     } catch (error) {
       throw new Error(
-        `dsh-auto-model-router: rules[${index}] has an invalid regex "${pattern}": ${error instanceof Error ? error.message : String(error)}`,
+        `mydsh-auto-model-router: rules[${index}] has an invalid regex "${pattern}": ${error instanceof Error ? error.message : String(error)}`,
       )
     }
   }
@@ -249,12 +249,12 @@ function normalizeCostControl(costControl) {
   cc.enabled = cc.enabled !== false
   if (!COST_MODES.includes(cc.mode)) {
     throw new Error(
-      `dsh-auto-model-router: costControl.mode must be one of ${COST_MODES.join(', ')}, got "${cc.mode}"`,
+      `mydsh-auto-model-router: costControl.mode must be one of ${COST_MODES.join(', ')}, got "${cc.mode}"`,
     )
   }
   if (!LEVEL_IDS.includes(cc.defaultLevel)) {
     throw new Error(
-      `dsh-auto-model-router: costControl.defaultLevel must be one of ${LEVEL_IDS.join(', ')}, got "${cc.defaultLevel}"`,
+      `mydsh-auto-model-router: costControl.defaultLevel must be one of ${LEVEL_IDS.join(', ')}, got "${cc.defaultLevel}"`,
     )
   }
   cc.tokenBudgetPerSession = clampInt(
@@ -265,7 +265,7 @@ function normalizeCostControl(costControl) {
   )
   if (!DOWNGRADE_BEHAVIORS.includes(cc.downgradeBehavior)) {
     throw new Error(
-      `dsh-auto-model-router: costControl.downgradeBehavior must be one of ${DOWNGRADE_BEHAVIORS.join(', ')}, got "${cc.downgradeBehavior}"`,
+      `mydsh-auto-model-router: costControl.downgradeBehavior must be one of ${DOWNGRADE_BEHAVIORS.join(', ')}, got "${cc.downgradeBehavior}"`,
     )
   }
   return cc
@@ -289,7 +289,7 @@ function normalizeClassifier(classifier) {
 function normalizeChain(chain) {
   if (chain === undefined || chain === null) return []
   if (!Array.isArray(chain)) {
-    throw new Error('dsh-auto-model-router: "fallbackChain" must be an array of provider/model routes')
+    throw new Error('mydsh-auto-model-router: "fallbackChain" must be an array of provider/model routes')
   }
   return chain.map((route, index) => normalizeRoute(route, `fallbackChain[${index}]`))
 }
