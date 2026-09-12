@@ -1,4 +1,4 @@
-# dsh-auto-model-router
+# mydsh-auto-model-router
 
 一个适配 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的混合式自动模型路由插件。通过 **L0–L3 四个能力层级**为每个 agent 请求选择模型——日常问答、代码测试、编写审查、复合多步任务——支持用户可配置的成本策略、可选的 LLM 任务分类器、以及失败降级链。
 
@@ -89,14 +89,14 @@ deepseek-official
 ## 安装
 
 ```bash
-dsh plugin --profile web add ./dsh-auto-model-router
+dsh plugin --profile web add ./mydsh-auto-model-router
 ```
 
 或通过已发布的 npm 包安装：
 
 ```bash
-npm install @adverts13/dsh-auto-model-router
-dsh plugin --profile web add @adverts13/dsh-auto-model-router
+npm install @apinggithub/mydsh-auto-model-router
+dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
 ```
 
 ## 配置
@@ -105,14 +105,14 @@ dsh plugin --profile web add @adverts13/dsh-auto-model-router
 
 ```yaml
 - insert:
-    - id: dsh-auto-model-router
+    - id: mydsh-auto-model-router
       name: '@deepseek-ai/cordis-plugin-group'
       group: true
       isolate:
         modelRouter: true
       config:
         - id: dsh-auto-model-router-runtime
-          name: '@adverts13/dsh-auto-model-router'
+          name: '@apinggithub/mydsh-auto-model-router'
           config:
             # ── 四个层级（出厂默认）────────────────────────────────────
             # reasoningEffort：off = 无思考，medium/high/max = 思考强度
