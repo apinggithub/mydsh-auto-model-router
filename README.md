@@ -1,4 +1,4 @@
-# dsh-auto-model-router
+# mydsh-auto-model-router
 
 A hybrid auto model-router plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). Routes each agent request through **four capability levels (L0–L3)** with three user-facing routing modes: a zero-latency **heuristic lock** (text-width thresholds), a **fixed-level** mode, and **fully-auto** mode (keyword scoring + optional LLM classifier). Failure fallback chains and budget control round it out.
 
@@ -112,8 +112,8 @@ dsh plugin --profile web add ./dsh-auto-model-router
 Or via the published npm package:
 
 ```bash
-npm install @adverts13/dsh-auto-model-router
-dsh plugin --profile web add @adverts13/dsh-auto-model-router
+npm install @apinggithub/mydsh-auto-model-router
+dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
 ```
 
 ## Configuration
@@ -122,14 +122,14 @@ Add to your profile's `cordis.patch.yml`:
 
 ```yaml
 - insert:
-    - id: dsh-auto-model-router
+    - id: mydsh-auto-model-router
       name: '@deepseek-ai/cordis-plugin-group'
       group: true
       isolate:
         modelRouter: true
       config:
-        - id: dsh-auto-model-router-runtime
-          name: '@adverts13/dsh-auto-model-router'
+        - id: mydsh-auto-model-router-runtime
+          name: '@apinggithub/mydsh-auto-model-router'
           config:
             # ── four levels (the shipped defaults) ─────────────────────
             # reasoningEffort: off = no thinking, medium/high/max = intensity.
