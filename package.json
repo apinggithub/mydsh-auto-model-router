@@ -1,0 +1,71 @@
+{
+  "name": "@adverts13/dsh-auto-model-router",
+  "version": "0.1.1",
+  "description": "Hybrid model router for DeepSeek Harness: declarative rules, user-configurable cost control (cost-first / quality-first / balanced), optional LLM task classifier, and failure fallback chains.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "config.mjs",
+    "rules.mjs",
+    "cost-control.mjs",
+    "classifier.mjs",
+    "fallback.mjs",
+    "router.mjs",
+    "notify.mjs",
+    "auto-adapter.mjs",
+    "text-width.mjs",
+    "scoring.mjs",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "build:client": "node build-client.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "model-router",
+    "llm",
+    "routing",
+    "cost-optimization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ADVeRTs13/dsh-auto-model-router.git"
+  },
+  "homepage": "https://github.com/ADVeRTs13/dsh-auto-model-router#readme",
+  "bugs": {
+    "url": "https://github.com/ADVeRTs13/dsh-auto-model-router/issues"
+  },
+  "license": "MIT"
+}
