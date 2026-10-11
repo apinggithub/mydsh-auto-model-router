@@ -37,7 +37,8 @@
   },
   "scripts": {
     "test": "node --test *.test.mjs",
-    "build:client": "node build-client.mjs"
+    "build:client": "node build-client.mjs",
+    "publish:all": "npm publish --access public && cd tier-cost && npm publish --access public"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.1.0-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.3.0-0 <0.4.0",
