@@ -61,6 +61,17 @@ export function apply(ctx, input = {}) {
     'modelRouter.unregisterAutoAdapter()',
   )
 
+  // ── catalog freshness: read provider catalogs at activation, then poll ──
+  // A retired model id makes its level stale; the router then drifts around it
+  // and the status report names same-family candidates for the one-line fix.
+  ctx.effect(() => {
+    if (typeof ctx.llm?.listModels !== 'function') return undefined
+    void router.refreshCatalogs()
+    const timer = setInterval(() => void router.refreshCatalogs(), config.modelsGuard.refreshMs)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }, 'modelRouter.catalogWatch()')
+
   // ── HTTP status endpoint for the browser settings section ─────────────
   // The client fetch()es /api/mydsh-auto-model-router/status to render the
   // current routing policy (no localStorage / DOM-transcript dependency).
@@ -78,11 +89,13 @@ export function apply(ctx, input = {}) {
     handler: (_req, res) => {
       const body = JSON.stringify({
         ok: true,
-        report: statusReport(config, resolveLocale(ctx)),
+        report: statusReport(config, resolveLocale(ctx), { stale: router.staleLevels() }),
         levels: config.levels,
         costControl: config.costControl,
         freeQuota: config.freeQuota,
         contextGuard: config.contextGuard,
+        modelsGuard: config.modelsGuard,
+        staleLevels: router.staleLevels(),
         rules: config.rules,
         scoring: config.scoring,
         fallbackChain: config.fallbackChain,

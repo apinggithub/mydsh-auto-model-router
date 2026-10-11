@@ -423,3 +423,35 @@ both invalid on 0.2.x hosts — a fresh machine must ship its own levels block o
 outright. `tier-cost` has zero hard dependencies beyond the host: without the router every
 turn folds into manual/unknown, without the billing plugin tokens are counted and cost
 stays 0 — both cases self-report in the panel notes.
+
+### Catalog freshness guard (modelsGuard)
+
+When a provider retires a model id, the level pointing at it goes stale. The
+guard reads what each provider actually advertises (`ctx.llm.listModels`) at
+activation and every `refreshMs` (default 10 min): a stale level's requests
+**drift to the nearest fresh level** instead of failing, and the status report
+names same-family candidate ids so the fix stays a one-line edit. Unreadable or
+empty catalogs fail open (never marked stale); environments without a catalog
+reader leave the layer inert.
+
+```yaml
+modelsGuard: { enabled: true, refreshMs: 600000 }
+```
+
+> The static list remains configuration (`cordis.patch.yml`) on purpose: the
+> plugin never decides *which* new model to adopt (windows, prices and
+> capabilities all change) — it guarantees a dead tier is not selected and
+> tells you what to switch to.
+
+## Publishing to npm
+
+Both plugins live in this repository and publish independently:
+
+```bash
+npm publish                 # @apinggithub/mydsh-auto-model-router (root)
+cd tier-cost && npm publish # @apinggithub/dsh-tier-cost
+```
+
+From 0.2.0 the peerDependencies are host-adaptive ranges, so fresh machines no
+longer need the allow-version exemption (only 0.1.1 and earlier did). Run
+`npm login --scope=apinggithub` once per package account setup.

@@ -55,6 +55,11 @@ export class ModelRouter {
     )
     this.classifier = new LlmClassifier(config.llmClassifier, deps.llm)
     this.tokenMeter = deps.tokenMeter
+    this.llm = deps.llm ?? null
+    // Provider → Set<model ids> | null. null means the catalog could not be
+    // read (or is empty): the freshness guard fails OPEN for that provider.
+    this.catalogs = new Map()
+    this.catalogCheckedAt = 0
     /** @type {Map<string, object>} */
     this.states = new Map()
   }
@@ -191,8 +196,15 @@ export class ModelRouter {
   }
 
   routeFor(state, sessionId, level) {
-    const route = this.effectiveRoute(state, sessionId, level)
-    state.level = level
+    // Catalog freshness first: a stale route fails the request outright, so
+    // drift to the nearest fresh level instead (fail open when nothing fits).
+    let use = level
+    if (this.routeStale(this.levels[level])) {
+      const fresh = this.nearestFreshLevel(level)
+      if (fresh !== null) use = fresh
+    }
+    const route = this.effectiveRoute(state, sessionId, use)
+    state.level = use
     state.current = route
     return route
   }
@@ -348,6 +360,95 @@ export class ModelRouter {
     return Object.fromEntries(this.states.get(sessionId)?.contextSkips ?? [])
   }
 
+  // ── catalog freshness guard ─────────────────────────────────────────────
+  // Model versions move on: a provider deprecates an id, the profile's static
+  // list rots. The guard reads what each provider actually advertises
+  // (`ctx.llm.listModels`) and treats a missing route as stale: the level
+  // drifts to the nearest fresh one and `/status` names same-family candidates
+  // for the one-line fix. Providers whose catalog cannot be read fail open.
+
+  /** Whether the guard can run at all (needs a catalog reader). */
+  catalogGuardActive() {
+    return this.config.modelsGuard?.enabled === true
+      && typeof this.llm?.listModels === 'function'
+  }
+
+  /**
+   * Re-read every provider's advertised model ids for the routes in play.
+   * Never throws; unreadable or empty answers record the provider as unknown.
+   * @returns {Promise<void>}
+   */
+  async refreshCatalogs() {
+    if (!this.catalogGuardActive()) return
+    this.catalogCheckedAt = Date.now()
+    const providers = new Set()
+    for (const id of LEVEL_IDS) {
+      const route = this.levels[id]
+      if (route?.provider) providers.add(route.provider)
+    }
+    for (const entry of this.freeQuotaRoutes()) providers.add(entry.provider)
+    for (const provider of providers) {
+      let ids = null
+      try {
+        const listed = await this.llm.listModels(provider)
+        if (Array.isArray(listed)) {
+          ids = new Set()
+          for (const item of listed) {
+            const modelId = item?.id ?? item?.model
+            if (typeof modelId === 'string' && modelId !== '') ids.add(modelId)
+          }
+          if (ids.size === 0) ids = null
+        }
+      } catch {
+        ids = null
+      }
+      this.catalogs.set(provider, ids)
+    }
+  }
+
+  /** Whether a route is missing from a known (readable, non-empty) catalog. */
+  routeStale(route) {
+    if (!route?.provider || !route?.model) return false
+    const ids = this.catalogs.get(route.provider)
+    return ids !== undefined && ids !== null && !ids.has(route.model)
+  }
+
+  /**
+   * Staleness report per level: level → { provider, model, candidates },
+   * where `candidates` are same-family ids the provider still advertises.
+   * @returns {object}
+   */
+  staleLevels() {
+    const out = {}
+    for (const id of LEVEL_IDS) {
+      const route = this.levels[id]
+      if (!route || !this.routeStale(route)) continue
+      const ids = this.catalogs.get(route.provider) ?? new Set()
+      const family = String(route.model).split(/[-._]/)[0].toLowerCase()
+      out[id] = {
+        provider: route.provider,
+        model: route.model,
+        candidates: [...ids].filter((m) => m.toLowerCase().includes(family)).slice(0, 5),
+      }
+    }
+    return out
+  }
+
+  /** The nearest non-stale level to drift to (upward first), or null. */
+  nearestFreshLevel(level) {
+    const index = levelIndex(level)
+    if (index === -1) return null
+    for (let i = index + 1; i < LEVEL_IDS.length; i += 1) {
+      const candidate = this.levels[LEVEL_IDS[i]]
+      if (candidate && !this.routeStale(candidate)) return LEVEL_IDS[i]
+    }
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const candidate = this.levels[LEVEL_IDS[i]]
+      if (candidate && !this.routeStale(candidate)) return LEVEL_IDS[i]
+    }
+    return null
+  }
+
   // ── free-quota layer ────────────────────────────────────────────────────
   // Routes declared free (a level flag `freeQuota: true`, or an entry in
   // `freeQuota.routes`) are preferred for the levels they cover. A free route
@@ -415,6 +516,7 @@ export class ModelRouter {
     for (const entry of this.freeQuotaRoutes()) {
       if (levelIndex(entry.maxLevel) < index) continue
       if (this.isExhausted(sessionId, entry)) continue
+      if (this.routeStale(entry)) continue
       return entry
     }
     return null

@@ -384,3 +384,30 @@ dsh plugin --profile desktop add ./mydsh-auto-model-router/tier-cost   # 可选�
 合法值**——新机器必须自带档位块，否则选 Auto 会直接失败。
 `tier-cost` 对宿主其余部分零依赖：缺路由插件时全部归 manual/unknown，缺计费插件时只统计
 token、费用记 0，均会在面板 notes 里说明。
+
+### 目录新鲜度守卫（modelsGuard）
+
+模型版本升级后，provider 不再公布的 id 会变成「过期路由」。守卫在激活时与每
+`refreshMs`（默认 10 分钟）用 `ctx.llm.listModels(provider)` 读取各 provider
+实际公布的模型：过期档位的请求**自动漂移到最近的鲜活档位**（绝不静默打死），
+状态报告列出过期档位与**同族候选 id**，改档位仍是一行编辑的事。目录读不到或
+为空时一律 fail-open（不判过期）。未注册 listModels 的环境整层惰性。
+
+```yaml
+modelsGuard: { enabled: true, refreshMs: 600000 }
+```
+
+> 静态列表本身仍是配置（`cordis.patch.yml`）——这是刻意的：插件不会替你决定
+> 换成哪个模型（窗口/单价/能力都变了），它只保证**坏档位不再被选中**并告诉你该换什么。
+
+## 发布到 npm
+
+两个插件同一仓库、各自独立发布（root 与本目录的 package.json 都可直接 publish）：
+
+```bash
+npm publish                 # @apinggithub/mydsh-auto-model-router（root）
+cd tier-cost && npm publish # @apinggithub/dsh-tier-cost
+```
+
+0.2.0 起 peerDependencies 已放宽为宿主自适应范围，新机器安装**不再需要**
+allow-version 豁免（豁免仅 0.1.1 及更早需要）。发布前各自 `npm login --scope=apinggithub`。

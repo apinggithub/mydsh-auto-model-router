@@ -79,6 +79,11 @@ const STRINGS = {
       'Raise costControl.tokenBudgetPerSession in cordis.patch.yml to lift the cap.',
     ].join('\n'),
     freeQuota: 'Free-quota routes',
+    catalogGuard: 'Catalog freshness check',
+    disabled: 'disabled',
+    staleFlag: 'STALE',
+    staleIs: 'stale (id no longer advertised by the provider), candidates:',
+    staleNone: 'no same-family candidate found',
     freeQuotaDemotedTitle: 'Model Router — free route unavailable',
     freeQuotaDemotedQuestion: 'The free route {{from}} failed ({{code}}). Route this session through {{to}} instead?',
     freeQuotaKeep: 'Keep retrying the free route',
@@ -127,6 +132,11 @@ const STRINGS = {
     downgradeAccept: '使用更便宜的模型',
     downgradeKeep: '继续使用当前模型',
     freeQuota: '免费额度路由',
+    catalogGuard: '目录新鲜度检查',
+    disabled: '已禁用',
+    staleFlag: '已过期',
+    staleIs: '过期（provider 已不再公布该 id），候选：',
+    staleNone: '未找到同族候选',
     freeQuotaDemotedTitle: '模型路由插件 — 免费路由不可用',
     freeQuotaDemotedQuestion: '免费路由 {{from}} 调用失败（{{code}}）。本会话改用 {{to}} 继续？',
     freeQuotaKeep: '继续重试免费路由',
@@ -178,13 +188,14 @@ export function resolveLocale(ctx) {
  * @param {'zh'|'en'} [locale]
  * @returns {string}
  */
-export function statusReport(config, locale = 'en') {
+export function statusReport(config, locale = 'en', extras = {}) {
   const t = STRINGS[locale] ?? STRINGS.en
   const lines = ['<mydsh-auto-model-router-status>', t.statusTitle, '', t.levels]
   for (const id of ['L0', 'L1', 'L2', 'L3']) {
     const route = config.levels[id]
+    const stale = extras.stale?.[id]
     lines.push(`- ${id}: ${route
-      ? `${route.provider}/${route.model} (effort: ${route.reasoningEffort ?? 'off'})`
+      ? `${route.provider}/${route.model} (effort: ${route.reasoningEffort ?? 'off'})${stale ? ` — ${t.staleFlag}` : ''}`
       : t.notConfigured}`)
   }
   lines.push('', `${t.costMode}: ${config.costControl.mode}`)
@@ -200,6 +211,11 @@ export function statusReport(config, locale = 'en') {
   const freeSummary = freeQuotaRoutesOf(config)
   if (freeSummary.length > 0) {
     lines.push(`${t.freeQuota}: ${freeSummary.join(' · ')}`)
+  }
+  lines.push(`${t.catalogGuard}: ${config.modelsGuard?.enabled === false ? t.disabled : `every ${Math.round((config.modelsGuard?.refreshMs ?? 600000) / 60000)} min`}`)
+  for (const [id, info] of Object.entries(extras.stale ?? {})) {
+    const candidates = info.candidates?.length > 0 ? info.candidates.join(', ') : t.staleNone
+    lines.push(`- ${id}${t.staleIs} ${info.provider}/${info.model} → ${candidates}`)
   }
   lines.push('', t.statusFooter, '</mydsh-auto-model-router-status>')
   return lines.join('\n')

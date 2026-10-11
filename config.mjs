@@ -33,11 +33,15 @@ export const DEFAULT_FREE_MAX_LEVEL = 'L1'
 export const COUNTING_MODES = Object.freeze(['cjk2', 'tokens'])
 
 const DEFAULT_CONFIG = Object.freeze({
+  // Factory defaults must be valid on the 0.2.x host family: the DeepSeek
+  // catalog advertises `deepseek-flash` (V4.1 Flash) and the adapter accepts
+  // only off/low/high/max. The previous defaults (`deepseek-v4-flash`,
+  // `medium`) were stale and made a fresh install without a levels block fail.
   levels: {
-    L0: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'off' },
-    L1: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'medium' },
-    L2: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' },
-    L3: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+    L0: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' },
+    L1: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'low' },
+    L2: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' },
+    L3: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'max' },
   },
   // Keyword rules only take part in MODE C (fully-auto). Default empty.
   rules: [],
@@ -70,7 +74,7 @@ const DEFAULT_CONFIG = Object.freeze({
   },
   llmClassifier: {
     enabled: true,
-    model: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    model: { provider: 'deepseek-official', model: 'deepseek-flash' },
     requestTimeoutMs: 10_000,
   },
   // Tier 3: free-quota preference. Routes declared free are preferred for the
@@ -100,6 +104,16 @@ const DEFAULT_CONFIG = Object.freeze({
     // leaving room for the answer.
     headroom: 0.85,
   },
+  // Tier 6: catalog freshness guard. Level/free routes are validated against
+  // what each provider actually advertises (`ctx.llm.listModels`); a route the
+  // provider no longer lists is stale — the level skips to the nearest fresh
+  // one and `/status` names it with same-family candidate ids. Inert (fail
+  // open) whenever a catalog cannot be read or comes back empty.
+  modelsGuard: {
+    enabled: true,
+    // Re-read provider catalogs every N ms (also validated once at activation).
+    refreshMs: 600_000,
+  },
   askEveryInputs: 3,
   fallbackChain: [],
   maxRetries: 1,
@@ -124,6 +138,7 @@ export function resolveConfig(input = {}) {
   cfg.llmClassifier = normalizeClassifier(cfg.llmClassifier)
   cfg.freeQuota = normalizeFreeQuota(cfg.freeQuota)
   cfg.contextGuard = normalizeContextGuard(cfg.contextGuard)
+  cfg.modelsGuard = normalizeModelsGuard(cfg.modelsGuard)
   cfg.askEveryInputs = clampInt(cfg.askEveryInputs, 1, 100, DEFAULT_CONFIG.askEveryInputs)
   cfg.fallbackChain = normalizeChain(cfg.fallbackChain)
   cfg.maxRetries = clampInt(cfg.maxRetries, 0, 5, DEFAULT_CONFIG.maxRetries)
@@ -152,6 +167,20 @@ function normalizeContextGuard(contextGuard) {
     headroom = DEFAULT_CONFIG.contextGuard.headroom
   }
   guard.headroom = headroom
+  return guard
+}
+
+/**
+ * Normalize the catalog freshness guard. `refreshMs` is clamped to a sane
+ * range so a typo cannot turn the periodic re-check into a hot loop.
+ */
+function normalizeModelsGuard(modelsGuard) {
+  const guard = {
+    ...DEFAULT_CONFIG.modelsGuard,
+    ...(modelsGuard ?? {}),
+  }
+  guard.enabled = guard.enabled !== false
+  guard.refreshMs = clampInt(guard.refreshMs, 30_000, 24 * 60 * 60 * 1000, DEFAULT_CONFIG.modelsGuard.refreshMs)
   return guard
 }
 
