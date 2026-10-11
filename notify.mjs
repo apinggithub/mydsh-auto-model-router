@@ -78,6 +78,17 @@ const STRINGS = {
       'Remaining requests in this session use the cheapest level ({{model}}).',
       'Raise costControl.tokenBudgetPerSession in cordis.patch.yml to lift the cap.',
     ].join('\n'),
+    freeQuota: 'Free-quota routes',
+    freeQuotaDemotedTitle: 'Model Router — free route unavailable',
+    freeQuotaDemotedQuestion: 'The free route {{from}} failed ({{code}}). Route this session through {{to}} instead?',
+    freeQuotaKeep: 'Keep retrying the free route',
+    freeQuotaAccept: 'Use the paid route',
+    freeQuotaBody: [
+      'Session {{session}} could not use the free-quota route {{from}} (level {{level}}).',
+      'Reason: {{code}}.',
+      'This session now routes that level through {{to}}; the free route is retried in the next session.',
+      'Edit freeQuota in cordis.patch.yml to change this behaviour.',
+    ].join('\n'),
   },
   zh: {
     statusTitle: '模型路由插件已激活。当前路由策略：',
@@ -115,6 +126,17 @@ const STRINGS = {
     downgradeQuestion: '会话 {{session}} 已达到 token 预算。本会话剩余请求切换到更便宜的模型？',
     downgradeAccept: '使用更便宜的模型',
     downgradeKeep: '继续使用当前模型',
+    freeQuota: '免费额度路由',
+    freeQuotaDemotedTitle: '模型路由插件 — 免费路由不可用',
+    freeQuotaDemotedQuestion: '免费路由 {{from}} 调用失败（{{code}}）。本会话改用 {{to}} 继续？',
+    freeQuotaKeep: '继续重试免费路由',
+    freeQuotaAccept: '改用付费路由',
+    freeQuotaBody: [
+      '会话 {{session}} 无法继续使用免费额度路由 {{from}}（层级 {{level}}）。',
+      '原因：{{code}}。',
+      '本会话该层级改用 {{to}}；免费路由会在下一个会话重新尝试。',
+      '可在 cordis.patch.yml 的 freeQuota 配置块中调整此行为。',
+    ].join('\n'),
     lockCrossedQuestion: '本次输入已超过启发式锁上限，路由如何继续？',
     lockCrossedDetail: '输入宽度超过最高阈值',
     fixedModel: '固定使用某个层级',
@@ -175,8 +197,36 @@ export function statusReport(config, locale = 'en') {
   if (config.fallbackChain.length > 0) {
     lines.push(`${t.fallback}: ${config.fallbackChain.map(r => `${r.provider}/${r.model}`).join(' → ')}`)
   }
+  const freeSummary = freeQuotaRoutesOf(config)
+  if (freeSummary.length > 0) {
+    lines.push(`${t.freeQuota}: ${freeSummary.join(' · ')}`)
+  }
   lines.push('', t.statusFooter, '</mydsh-auto-model-router-status>')
   return lines.join('\n')
+}
+
+/**
+ * Describe every route declared free, for the status report:
+ * levels flagged `freeQuota: true` plus `freeQuota.routes` entries (with the
+ * level ceiling each one covers).
+ * @param {object} config - resolved router config.
+ * @returns {string[]}
+ */
+export function freeQuotaRoutesOf(config) {
+  const out = []
+  for (const id of ['L0', 'L1', 'L2', 'L3']) {
+    const route = config.levels[id]
+    if (route?.freeQuota === true) out.push(`${id}: ${route.provider}/${route.model}`)
+  }
+  for (const entry of config.freeQuota?.routes ?? []) {
+    out.push(`≤${entry.maxLevel}: ${entry.provider}/${entry.model}`)
+  }
+  return out
+}
+
+/** `provider/model` label for a route, or a placeholder. */
+function routeLabel(route) {
+  return route && route.provider ? `${route.provider}/${route.model}` : '(unknown)'
 }
 
 // ── message injection ────────────────────────────────────────────────────
@@ -421,6 +471,37 @@ export function downgradeNotice(config, sessionId, locale = 'en') {
  */
 export async function notifyDowngrade(agent, config, sessionId, locale = 'en') {
   return injectInto(agent, downgradeNotice(config, sessionId, locale), 'downgrade')
+}
+
+/**
+ * Build the free-quota demotion notice text.
+ * @param {string} sessionId
+ * @param {{ level?: string, from?: object, to?: object, code?: string }} info
+ * @param {'zh'|'en'} locale
+ * @returns {string}
+ */
+export function freeQuotaNotice(sessionId, info, locale = 'en') {
+  const t = STRINGS[locale] ?? STRINGS.en
+  const body = t.freeQuotaBody
+    .replaceAll('{{session}}', sessionId)
+    .replaceAll('{{level}}', info?.level ?? '-')
+    .replaceAll('{{from}}', routeLabel(info?.from))
+    .replaceAll('{{to}}', routeLabel(info?.to))
+    .replaceAll('{{code}}', info?.code ?? 'request failed')
+  return `<mydsh-auto-model-router-free-quota>\n${body}\n</mydsh-auto-model-router-free-quota>`
+}
+
+/**
+ * Inject a user-visible notice that a free-quota route was demoted for this
+ * session (freeQuota.notify).
+ * @param {object} agent - the live agent.
+ * @param {string} sessionId
+ * @param {{ level?: string, from?: object, to?: object, code?: string }} info
+ * @param {'zh'|'en'} locale
+ * @returns {Promise<boolean>}
+ */
+export async function notifyFreeQuotaFallback(agent, sessionId, info, locale = 'en') {
+  return injectInto(agent, freeQuotaNotice(sessionId, info, locale), 'free-quota')
 }
 
 /**

@@ -1,0 +1,5 @@
+# dsh-tier-cost — the cordis patch layer. Mounts the per-level spend report as a
+# settings section and serves GET /api/tier-cost/usage from the host half.
+- insert:
+    - id: dsh-tier-cost
+      name: '@apinggithub/dsh-tier-cost'

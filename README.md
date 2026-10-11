@@ -202,6 +202,19 @@ Add to your profile's `cordis.patch.yml`:
                 model: deepseek-v4-flash
               requestTimeoutMs: 10000
 
+            # ── Tier 3: free-quota preference (optional) ───────────────
+            # Declare which routes are free-quota routes: they are preferred,
+            # and a failed one is demoted for the session.
+            freeQuota:
+              enabled: true          # auto-disabled when nothing is declared
+              routes:                # extra free routes that are not levels
+                - provider: glm
+                  model: glm-4.7-flash
+                  maxLevel: L1       # highest level it serves (inclusive), default L1
+                  reasoningEffort: off
+              demoteOnError: true    # one failure demotes it for the session
+              notify: true           # say so once per session
+
             # Fixed-level mode re-asks every N user inputs.
             askEveryInputs: 3
 
@@ -238,6 +251,51 @@ Set a positive value to cap spend per session:
     one?"; choosing "keep" waives the budget for the rest of the session.
   - `silent`: switch silently (not recommended — the user wonders why answers
     got worse).
+
+### Free-quota preference (freeQuota)
+
+Many providers hand out free quota (Zhipu's `glm-4.7-flash`, for instance, is
+permanently free), and a free route usually comes with the fine print: rate
+limits, a quota that runs out, tighter parameter caps. This layer turns "free"
+into a declarable route property and keeps a dead free route from failing the
+whole turn.
+
+Two declaration forms, which can be mixed:
+
+```yaml
+levels:
+  L0: { provider: glm, model: glm-4.7-flash, reasoningEffort: off, freeQuota: true }
+  L1: { provider: glm, model: glm-4.7-flash, reasoningEffort: low,  freeQuota: true }
+  L2: { provider: deepseek-account, model: deepseek-flash, reasoningEffort: high }
+  L3: { provider: deepseek-account, model: deepseek-flash, reasoningEffort: max }
+
+# Or: keep the levels paid and let a declared free route claim their work.
+freeQuota:
+  routes:
+    - { provider: glm, model: glm-4.7-flash, maxLevel: L1, reasoningEffort: off }
+```
+
+What it does:
+
+1. **Preference** — a decision at or below `maxLevel` runs on the declared free
+   route (free routes always carry an explicit `reasoningEffort`, defaulting to
+   `off`, so they never fall into the adapter's own default thinking level).
+2. **Demotion on failure** — any failure on a free route (quota exhausted, 429
+   rate limit, rejected credentials, rejected parameters) marks that route as
+   burned **for this session** and the request is retried on the next viable
+   route — normally the paid route that level was configured with.
+3. **No retrying a dead route** — after a demotion the fallback walk skips every
+   burned free route, so one session never hits the same wall twice.
+4. **Visible** — with `notify: true` the plugin injects one message saying which
+   free route failed, why, and what is used instead (at most once per session).
+5. **Session-scoped** — the demotion lasts for the current session only; the
+   next session tries the free route again. With nothing declared free the whole
+   layer is inert, so existing profiles behave exactly as before.
+
+> Note: free **vision** models often have a much smaller output cap (e.g.
+> `glm-4v-flash` allows `max_tokens ≤ 1024`). Fix those on the provider's
+> `models` entry with `maxTokens` — the router cannot guess them for you. If you
+> see `INVALID_REQUEST: max_tokens …`, add `maxTokens` to that model.
 
 ### On-load consultation (no client UI)
 
@@ -293,6 +351,21 @@ No external services are required — all layers are unit-tested against fixture
   a model. Contributions to optimize this are welcome — the classifier could
   potentially be cached across sessions, or a lighter heuristic could be used
   as a first pass before falling back to the LLM.
+
+## Companion plugin: cost by tier
+
+`tier-cost/` ships the second plugin of this repository,
+**`@apinggithub/dsh-tier-cost`**: it folds session logs into per-level (L0–L3)
+token usage and spend, borrowing per-turn cost from the billing plugin
+`@kenz1117/dsh-ui-usage-billing` (it owns no price table of its own) and adding a
+"Tier Cost" settings section — because the four levels usually share one model,
+a per-model panel cannot tell you which tier paid.
+
+```bash
+dsh plugin --profile desktop add ./tier-cost
+```
+
+See [tier-cost/README.md](tier-cost/README.md) for details.
 
 ## License
 

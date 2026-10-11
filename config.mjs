@@ -28,6 +28,8 @@ export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
 export const DOWNGRADE_BEHAVIORS = Object.freeze(['silent', 'notify', 'ask'])
 export const DEFAULT_LEVEL = 'L1'
+/** Highest level a free route serves when `freeQuota.routes[].maxLevel` is omitted. */
+export const DEFAULT_FREE_MAX_LEVEL = 'L1'
 export const COUNTING_MODES = Object.freeze(['cjk2', 'tokens'])
 
 const DEFAULT_CONFIG = Object.freeze({
@@ -71,6 +73,22 @@ const DEFAULT_CONFIG = Object.freeze({
     model: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     requestTimeoutMs: 10_000,
   },
+  // Tier 3: free-quota preference. Routes declared free are preferred for the
+  // levels they cover; a free route that fails is demoted for the session and
+  // the level falls back to its paid route instead of failing the turn.
+  freeQuota: {
+    // Auto-disabled when nothing is declared free (no behaviour change for
+    // existing users): see resolveConfig.
+    enabled: true,
+    // Extra free routes that are not levels themselves. `maxLevel` is the
+    // highest level the free route is trusted for (inclusive), default L1.
+    routes: [],
+    // Demote a free route for the rest of the session as soon as one request
+    // fails on it (quota exhausted, rate limited, rejected, ...).
+    demoteOnError: true,
+    // Tell the user once per session when a free route was demoted.
+    notify: true,
+  },
   askEveryInputs: 3,
   fallbackChain: [],
   maxRetries: 1,
@@ -93,10 +111,54 @@ export function resolveConfig(input = {}) {
   cfg.scoring = normalizeScoring(cfg.scoring)
   cfg.costControl = normalizeCostControl(cfg.costControl)
   cfg.llmClassifier = normalizeClassifier(cfg.llmClassifier)
+  cfg.freeQuota = normalizeFreeQuota(cfg.freeQuota)
   cfg.askEveryInputs = clampInt(cfg.askEveryInputs, 1, 100, DEFAULT_CONFIG.askEveryInputs)
   cfg.fallbackChain = normalizeChain(cfg.fallbackChain)
   cfg.maxRetries = clampInt(cfg.maxRetries, 0, 5, DEFAULT_CONFIG.maxRetries)
+  // Nothing declared free (neither a level flag nor a freeQuota.routes entry)
+  // means the whole layer is inert — keep existing profiles byte-identical in
+  // behaviour.
+  cfg.freeQuota.enabled = cfg.freeQuota.enabled
+    && (cfg.freeQuota.routes.length > 0 || LEVEL_IDS.some((id) => cfg.levels[id]?.freeQuota === true))
   return cfg
+}
+
+/**
+ * Normalize the free-quota layer. `routes` entries are provider/model pairs
+ * with an optional inclusive `maxLevel` ceiling.
+ */
+function normalizeFreeQuota(freeQuota) {
+  const fq = {
+    ...DEFAULT_CONFIG.freeQuota,
+    ...(freeQuota ?? {}),
+  }
+  fq.enabled = fq.enabled !== false
+  fq.demoteOnError = fq.demoteOnError !== false
+  fq.notify = fq.notify !== false
+  if (!Array.isArray(fq.routes)) {
+    throw new Error('mydsh-auto-model-router: freeQuota.routes must be an array of provider/model routes')
+  }
+  fq.routes = fq.routes.map((route, index) => {
+    const where = `freeQuota.routes[${index}]`
+    const normalized = normalizeRoute(route, where)
+    const maxLevel = route.maxLevel === undefined || route.maxLevel === null
+      ? DEFAULT_FREE_MAX_LEVEL
+      : String(route.maxLevel).trim()
+    if (!LEVEL_IDS.includes(maxLevel)) {
+      throw new Error(
+        `mydsh-auto-model-router: ${where}.maxLevel must be one of ${LEVEL_IDS.join(', ')}, got "${maxLevel}"`,
+      )
+    }
+    // Ride along with an explicit effort, exactly like a level route, so the
+    // dispatched request never falls back to the adapter's own default
+    // thinking level by accident.
+    return {
+      ...normalized,
+      reasoningEffort: normalized.reasoningEffort ?? 'off',
+      maxLevel,
+    }
+  })
+  return fq
 }
 
 function normalizeHeuristic(heuristic) {
@@ -177,6 +239,9 @@ function normalizeLevelRoute(route, where) {
   return {
     ...normalized,
     reasoningEffort: normalized.reasoningEffort ?? 'off',
+    // A level may declare that its route is a free-quota route. The flag rides
+    // along with the route so the router can prefer/demote it.
+    ...route.freeQuota === true ? { freeQuota: true } : {},
   }
 }
 

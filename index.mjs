@@ -25,6 +25,7 @@ import { AutoAdapter, isAutoSelection } from './auto-adapter.mjs'
 import {
   reportStatus, persistStatusReport, statusReport, notifyDowngrade,
   askDowngrade, resolveLocale, askModeSelection, askFixedLevel,
+  notifyFreeQuotaFallback,
 } from './notify.mjs'
 
 export const name = 'mydsh-auto-model-router'
@@ -77,6 +78,7 @@ export function apply(ctx, input = {}) {
           report: statusReport(config, resolveLocale(ctx)),
           levels: config.levels,
           costControl: config.costControl,
+          freeQuota: config.freeQuota,
           rules: config.rules,
           scoring: config.scoring,
           fallbackChain: config.fallbackChain,
@@ -201,6 +203,12 @@ export function apply(ctx, input = {}) {
         if (keep) router.waiveBudget(sessionId)
       }
     }
+    // A free route that burned its quota earlier in this session was replaced
+    // by a paid one while routing — tell the user once.
+    const demotion = router.consumeFreeDemotionFlag(sessionId)
+    if (demotion && config.freeQuota.notify) {
+      await notifyFreeQuotaFallback(agent, sessionId, demotion, resolveLocale(ctx))
+    }
     return {
       ...proposed,
       provider: route.provider,
@@ -212,15 +220,32 @@ export function apply(ctx, input = {}) {
   })
 
   // ── agent/request-error: fallback chain (auto mode only) ────────────────
+  // A free-quota route that fails (quota exhausted, rate limited, rejected) is
+  // demoted for the rest of the session: the retry runs on the next viable
+  // route, and every later decision for that level skips the burned route.
   ctx.on('agent/request-error', async ({ agent, failure }, next) => {
     const sessionId = agent.session.id
     if (!router.isAutoActive(sessionId)) return next()
     const failedRoute = router.current(sessionId)
+    const level = router.level(sessionId)
+    const burned = config.freeQuota.enabled && config.freeQuota.demoteOnError
+      ? router.markFreeExhausted(sessionId, failedRoute)
+      : false
     const fallback = router.nextOnFailure(sessionId, failedRoute)
     if (fallback) {
       ctx.logger?.info?.(
-        `[mydsh-auto-model-router] ${sessionId}: request failed (${failure?.error?.code ?? 'unknown'}), falling back to ${fallback.provider}/${fallback.model}`,
+        `[mydsh-auto-model-router] ${sessionId}: request failed (${failure?.error?.code ?? 'unknown'})`
+        + `${burned ? ' on a free route, which is now demoted for this session' : ''},`
+        + ` falling back to ${fallback.provider}/${fallback.model}`,
       )
+      if (burned && config.freeQuota.notify) {
+        await notifyFreeQuotaFallback(agent, sessionId, {
+          level,
+          from: failedRoute,
+          to: fallback,
+          code: failure?.error?.code ?? 'request failed',
+        }, resolveLocale(ctx))
+      }
       return { kind: 'retry' }
     }
     return next()

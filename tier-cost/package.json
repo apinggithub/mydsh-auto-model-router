@@ -1,0 +1,51 @@
+{
+  "name": "@apinggithub/dsh-tier-cost",
+  "version": "0.1.0",
+  "description": "Per-level (L0–L3) spend for the DSH auto model router: folds session logs into token usage per routing level and joins the billing plugin's per-turn cost.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./session-cost": "./session-cost.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "session-cost.mjs",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "test": "node --test *.test.mjs"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "model-router",
+    "usage",
+    "billing",
+    "cost"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apinggithub/mydsh-auto-model-router.git",
+    "directory": "tier-cost"
+  },
+  "license": "MIT"
+}

@@ -185,6 +185,18 @@ dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
                 model: deepseek-v4-flash
               requestTimeoutMs: 10000
 
+            # ── Tier 3：免费额度优先（可选）──────────────────────────
+            # 声明哪些路由是「免费额度」：优先走它们，额度用尽/报错自动换线。
+            freeQuota:
+              enabled: true          # 没有任何免费声明时自动失效
+              routes:                # 不在 levels 里的额外免费路由
+                - provider: glm
+                  model: glm-4.7-flash
+                  maxLevel: L1       # 这一档及以下的活可以交给它（含），默认 L1
+                  reasoningEffort: off
+              demoteOnError: true    # 该路由一报错即在本会话内降级到付费路由
+              notify: true           # 降级时插入一次可见提示
+
             # 固定层级模式每 N 次用户输入重新弹窗询问
             askEveryInputs: 3
 
@@ -218,6 +230,46 @@ dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
   - `ask`：弹窗询问"切到便宜模型还是继续用当前模型"；选"继续"则本会话
     豁免预算。
   - `silent`：静默切换（不推荐——用户会疑惑回答质量为何变化）。
+
+### 免费额度优先（freeQuota）
+
+很多 provider 会送免费额度（例如智谱的 `glm-4.7-flash` 长期免费），但免费通道
+同时意味着**限流、额度耗尽、参数上限更严**。这一层让「免费」变成可声明的路由属性，
+并在它不可用时自动换线，而不是把整轮对话做废。
+
+声明方式有两种，可以混用：
+
+```yaml
+levels:
+  L0: { provider: glm, model: glm-4.7-flash, reasoningEffort: off, freeQuota: true }
+  L1: { provider: glm, model: glm-4.7-flash, reasoningEffort: low,  freeQuota: true }
+  L2: { provider: deepseek-account, model: deepseek-flash, reasoningEffort: high }
+  L3: { provider: deepseek-account, model: deepseek-flash, reasoningEffort: max }
+
+# 或者：层级仍指向付费模型，另外声明免费路由来「抢」这些档位的活
+freeQuota:
+  routes:
+    - { provider: glm, model: glm-4.7-flash, maxLevel: L1, reasoningEffort: off }
+```
+
+行为：
+
+1. **优先**——决策落在 `maxLevel` 及以下的档位时，走声明的免费路由（免费路由
+   总是带着显式 `reasoningEffort`，默认 `off`，不会掉进适配器的默认思考档）。
+2. **失败即降级**——免费路由上任何一次请求失败（额度耗尽、429 限流、鉴权被拒、
+   参数被拒……）都会把该路由在**本会话内**标记为已耗尽，请求立刻重试到下一跳
+   可用路由（通常就是该档位原本的付费路由）。
+3. **不再重试坏路由**——降级后，fallbackChain 的游走会跳过所有已耗尽的免费路由，
+   同一个会话不会反复撞同一堵墙。
+4. **可见**——`notify: true` 时插入一条说明「哪个免费路由、为什么、现在改用什么」
+   的消息，每个会话最多一条。
+5. **会话级**——降级只在当前会话内生效，下个会话重新尝试免费路由；`freeQuota`
+   完全未声明时整层失效，老配置行为不变。
+
+> 注意：免费的**视觉**模型通常有更小的输出上限（例如 `glm-4v-flash` 只允许
+> `max_tokens ≤ 1024`）。这类限制要在 provider 的 `models` 条目上写 `maxTokens`
+> 修正，路由器无法替你猜——遇到 `INVALID_REQUEST: max_tokens参数非法` 时按提示
+> 给该模型加 `maxTokens` 即可。
 
 ### 加载时询问（无需客户端界面）
 
@@ -266,6 +318,20 @@ npm test        # node --test *.test.mjs
 ## 已知问题
 
 - **全自动模式延迟**：开启 LLM 分类器后，每个新用户输入的第一步会增加一次分类器调用（LLM 请求）。虽然同一输入内的后续步骤已缓存、无额外开销，但多步任务的整体响应时间仍比直接选择模型慢。欢迎贡献优化方案——例如跨会话缓存分类结果，或用轻量启发式作为 LLM 分类的前置过滤。
+
+## 配套插件：按档位拆账
+
+`tier-cost/` 里是本仓库附带的第二个插件 **`@apinggithub/dsh-tier-cost`**：
+它把会话日志按路由档位折叠成 L0–L3 的 token 与花费（金额向计费插件
+`@kenz1117/dsh-ui-usage-billing` 借 per-turn 数据，本身不维护价目表），
+在设置页多出一栏「档位花费」——因为四个档位常常共用同一个模型，计费面板
+按模型分账时看不出是哪一档花的钱。
+
+```bash
+dsh plugin --profile desktop add ./tier-cost
+```
+
+细节见 [tier-cost/README.zh.md](tier-cost/README.zh.md)。
 
 ## License
 
