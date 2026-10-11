@@ -165,11 +165,16 @@ export class ModelRouter {
     if (own === null) return this.firstConfiguredRoute()
 
     // 2. A free level whose quota is gone falls back to its paid replacement
-    //    for the rest of the session instead of failing the turn.
+    //    for the rest of the session instead of failing the turn. Each
+    //    (level, route) demotion is queued for reporting only once.
     if (this.isFreeLevel(level) && this.isExhausted(sessionId, own)) {
       const paid = this.paidReplacement(level)
       if (paid && !routesEqual(paid, own)) {
-        state.freeDemotionPending = { level, from: own, to: paid }
+        const demoteKey = `${level}:${this.routeKey(own)}`
+        if (!state.freeDemotionReported.has(demoteKey)) {
+          state.freeDemotionReported.add(demoteKey)
+          state.freeDemotionPending = { level, from: own, to: paid }
+        }
         return paid
       }
     }
@@ -523,6 +528,8 @@ export class ModelRouter {
         exhaustedFree: new Set(),
         // A free route demoted during routing, waiting to be reported.
         freeDemotionPending: null,
+        // Demotions already reported, so a session is told exactly once.
+        freeDemotionReported: new Set(),
       }
       this.states.set(sessionId, state)
     }

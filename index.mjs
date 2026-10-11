@@ -227,7 +227,6 @@ export function apply(ctx, input = {}) {
     const sessionId = agent.session.id
     if (!router.isAutoActive(sessionId)) return next()
     const failedRoute = router.current(sessionId)
-    const level = router.level(sessionId)
     const burned = config.freeQuota.enabled && config.freeQuota.demoteOnError
       ? router.markFreeExhausted(sessionId, failedRoute)
       : false
@@ -238,14 +237,9 @@ export function apply(ctx, input = {}) {
         + `${burned ? ' on a free route, which is now demoted for this session' : ''},`
         + ` falling back to ${fallback.provider}/${fallback.model}`,
       )
-      if (burned && config.freeQuota.notify) {
-        await notifyFreeQuotaFallback(agent, sessionId, {
-          level,
-          from: failedRoute,
-          to: fallback,
-          code: failure?.error?.code ?? 'request failed',
-        }, resolveLocale(ctx))
-      }
+      // The user-visible notice is owned by the routing path, which knows the
+      // level and the paid replacement: announcing it here too would report the
+      // same demotion twice.
       return { kind: 'retry' }
     }
     return next()
