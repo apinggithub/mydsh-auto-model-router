@@ -45,6 +45,26 @@ export const AutoAdapter = {
   },
   listModels: async () => autoListModels(),
   resolveModel: async (provider, model) => autoResolveModel(provider, model),
+  /**
+   * The newer adapter contract (host 0.2.x): the runtime validates a request
+   * against the model's capabilities and binds it to one concrete adapter
+   * generation through `prepareCall(provider, model, signal)`, then dispatches
+   * through the returned `stream`. The virtual `auto` provider owns no
+   * generation of its own, so it returns the metadata it already advertises and
+   * routes the stream through the same forwarding generator below.
+   *
+   * Without this, every call the router does not intercept — a title step,
+   * compaction, a listener ordering gap — died with
+   * "registration.adapter.prepareCall is not a function" on hosts past 0.1.x.
+   * (`normalizeModelInfo` requires provider === the registration id, id === the
+   * requested model, and a non-empty name; everything else is optional.)
+   */
+  async prepareCall(provider, model) {
+    return {
+      model: await AutoAdapter.resolveModel(provider, model),
+      stream: (options) => AutoAdapter.stream(options),
+    }
+  },
   async *stream(options) {
     const router = globalThis.__dshAutoModelRouter
     if (router !== undefined) {

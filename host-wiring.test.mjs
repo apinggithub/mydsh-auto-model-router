@@ -1,6 +1,5 @@
-// Host-wiring test: drives the plugin's real `apply()` against a mock cordis
-// context, so the event wiring (not just the router logic) is exercised —
-// agent/request routing, the free-quota demotion on agent/request-error, the
+﻿// Host-wiring test: drives the plugin's real `apply()` against a mock cordis
+// context, so the event wiring (not just the router logic) is exercised 鈥?// agent/request routing, the free-quota demotion on agent/request-error, the
 // retry path, the status endpoint payload and the one-shot notice.
 //
 //   node --test *.test.mjs
@@ -9,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { apply, name, inject } from './index.mjs'
+import { AutoAdapter } from './auto-adapter.mjs'
 
 const GLM = { provider: 'glm', model: 'glm-4.7-flash' }
 const DS = { provider: 'deepseek-account', model: 'deepseek-flash' }
@@ -192,8 +192,7 @@ test('a failing free route is demoted, retried on the paid route and reported on
   // Nothing is announced yet: the notice belongs to the routing path.
   assert.equal(agent.injected.filter((m) => JSON.stringify(m).includes('free-quota')).length, 0)
 
-  // A brand-new input re-decides, finds the free level burned and falls back —
-  // that is when the demotion is announced, exactly once, naming both sides.
+  // A brand-new input re-decides, finds the free level burned and falls back 鈥?  // that is when the demotion is announced, exactly once, naming both sides.
   await input(emit, agent, 'next question')
   const third = await request(emit, agent)
   assert.equal(third.provider, 'deepseek-account')
@@ -251,4 +250,33 @@ test('demotion survives a failing notice channel', async () => {
   await input(emit, agent, 'next')
   const next = await request(emit, agent)
   assert.equal(next.provider, 'deepseek-account')
+})
+
+test('the virtual auto adapter satisfies the 0.2.x prepareCall contract', async () => {
+  const call = await AutoAdapter.prepareCall('auto', 'auto', undefined)
+  // Exactly what normalizeModelInfo validates on the host side.
+  assert.equal(call.model.provider, 'auto')
+  assert.equal(call.model.id, 'auto')
+  assert.equal(typeof call.model.name, 'string')
+  assert.ok(call.model.name.length > 0)
+  assert.equal(typeof call.stream, 'function')
+
+  // The stream it hands back forwards to the router's current decision, so a
+  // call the router did not intercept still reaches a real model.
+  const seen = []
+  globalThis.__dshLl = {
+    stream: (options) => (async function* () {
+      yield { forwardedTo: `${options.provider}/${options.model}`, effort: options.reasoningEffort }
+    })(),
+  }
+  globalThis.__dshAutoModelRouter = {
+    current: () => ({ provider: 'bailian', model: 'qwen3.8-flash', reasoningEffort: 'off' }),
+  }
+  try {
+    for await (const chunk of call.stream({ sessionId: 's1' })) seen.push(chunk)
+  } finally {
+    delete globalThis.__dshLl
+    delete globalThis.__dshAutoModelRouter
+  }
+  assert.deepEqual(seen, [{ forwardedTo: 'bailian/qwen3.8-flash', effort: 'off' }])
 })
