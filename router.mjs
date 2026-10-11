@@ -150,13 +150,22 @@ export class ModelRouter {
   /**
    * Resolve the level actually used for a decision: the preferred free route
    * when one covers this level, the level's own route otherwise, and the paid
-   * replacement when the level's own free route is already exhausted.
+   * replacement when the level's own free route is already exhausted. Before
+   * any of that, the context guard skips levels whose declared window cannot
+   * hold the conversation.
    * @param {object} state - per-session state.
    * @param {string} sessionId
    * @param {string} level
    * @returns {object} route
    */
   effectiveRoute(state, sessionId, level) {
+    // 0. Context guard: never route into a window that cannot hold the
+    //    conversation — a level with no room left produces truncated answers.
+    const fitted = this.levelFittingContext(state, level)
+    if (fitted !== level && this.levels[fitted]) {
+      return this.levels[fitted]
+    }
+
     // 1. Preference: a declared free route covering this level wins.
     const free = this.freeCandidateFor(sessionId, level)
     if (free) return free
@@ -239,6 +248,104 @@ export class ModelRouter {
       if (route) return route
     }
     return { provider: '', model: '' }
+  }
+
+  // ── context-window guard ────────────────────────────────────────────────
+  // A level whose declared `contextWindow` cannot hold the conversation is
+  // skipped: the router drifts up to the nearest level that fits. Undeclared
+  // windows are assumed to fit; when nothing fits the original level stands
+  // (fail open) — the provider will say so with a real error, which the
+  // fallback chain then handles.
+
+  /** Whether the guard is active for this profile. */
+  contextGuardEnabled() {
+    return this.config.contextGuard?.enabled === true
+  }
+
+  /** Headroom fraction the guard compares against. */
+  contextHeadroom() {
+    return Number.isFinite(this.config.contextGuard?.headroom)
+      ? this.config.contextGuard.headroom
+      : 0.85
+  }
+
+  /**
+   * The conversation size the guard compares against: the input side of the
+   * last completed request in this session (uncached + cache-read + cache-write).
+   * @param {string} sessionId
+   * @returns {number}
+   */
+  contextTokens(sessionId) {
+    return this.states.get(sessionId)?.contextTokens ?? 0
+  }
+
+  /**
+   * Remember the input side of one request (from the usage the host logs with
+   * each assistant message).
+   * @param {string} sessionId
+   * @param {object} usage - { inputTokens, cacheReadTokens, cacheWriteTokens, ... }
+   */
+  recordUsage(sessionId, usage) {
+    if (!usage || typeof usage !== 'object') return
+    const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0)
+    const total = num(usage.inputTokens) + num(usage.cacheReadTokens ?? usage.cachedInputTokens)
+      + num(usage.cacheWriteTokens)
+    if (total <= 0) return
+    this.stateFor(sessionId).contextTokens = total
+  }
+
+  /**
+   * The level to actually use after the context guard: `level` itself when it
+   * fits (or declares no window), otherwise the nearest configured level that
+   * fits — upward first, because more capable levels tend to have larger
+   * windows. Records the skip once per (level, session) for reporting.
+   * @param {object} state - per-session state (for the skip record).
+   * @param {string} level
+   * @returns {string}
+   */
+  levelFittingContext(state, level) {
+    if (!this.contextGuardEnabled()) return level
+    const size = state.contextTokens ?? 0
+    if (size <= 0) return level
+    const index = levelIndex(level)
+    if (index === -1) return level
+    const headroom = this.contextHeadroom()
+    const fits = (id) => {
+      const route = this.levels[id]
+      if (!route) return false
+      const window = route.contextWindow
+      if (!Number.isFinite(window) || window <= 0) return true
+      return size <= window * headroom
+    }
+    if (fits(level)) return level
+    const ladder = []
+    for (let i = index + 1; i < LEVEL_IDS.length; i += 1) ladder.push(LEVEL_IDS[i])
+    for (const id of ladder) {
+      if (fits(id)) {
+        this.recordContextSkip(state, level, id)
+        return id
+      }
+    }
+    // Nothing declared fits; fail open on the original level.
+    this.recordContextSkip(state, level, level)
+    return level
+  }
+
+  /** Note that a level was skipped for context, once per session per level. */
+  recordContextSkip(state, from, to) {
+    if (state.contextSkips?.has(from)) return
+    if (state.contextSkips === undefined) state.contextSkips = new Map()
+    state.contextSkips.set(from, { from, to, contextTokens: state.contextTokens ?? 0 })
+  }
+
+  /**
+   * The context skips recorded for one session (level → { from, to,
+   * contextTokens }), for the status endpoint and tests.
+   * @param {string} sessionId
+   * @returns {object}
+   */
+  contextSkipsOf(sessionId) {
+    return Object.fromEntries(this.states.get(sessionId)?.contextSkips ?? [])
   }
 
   // ── free-quota layer ────────────────────────────────────────────────────
@@ -524,6 +631,10 @@ export class ModelRouter {
         downgradePending: false,
         budgetWaived: false,
         autoActive: false,
+        // Input side of the last completed request (context guard signal).
+        contextTokens: 0,
+        // Levels skipped by the context guard, once each.
+        contextSkips: new Map(),
         // Free routes whose quota this session already burned.
         exhaustedFree: new Set(),
         // A free route demoted during routing, waiting to be reported.

@@ -370,3 +370,20 @@ See [tier-cost/README.md](tier-cost/README.md) for details.
 ## License
 
 MIT
+
+### Context-window guard (contextGuard)
+
+A level may declare its model's `contextWindow`. When the session's live context
+(the input side of the last request, including cache reads/writes) exceeds
+`window × headroom` (default 0.85) the level is **skipped** and the router
+drifts up to the nearest level that fits; if no declared window fits, the
+original level stands (fail open) so the provider answers with a real error the
+fallback chain can handle. Each skip is recorded once per (level, session) and
+visible in `/status` under `contextGuard`. With no window declared anywhere the
+layer is inert.
+
+```yaml
+levels:
+  L0: { provider: bailian, model: qwen-max, contextWindow: 32768 }   # guard small windows
+contextGuard: { enabled: true, headroom: 0.85 }
+```

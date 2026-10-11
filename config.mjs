@@ -89,6 +89,17 @@ const DEFAULT_CONFIG = Object.freeze({
     // Tell the user once per session when a free route was demoted.
     notify: true,
   },
+  // Tier 5: context-window guard. A level whose declared `contextWindow`
+  // cannot hold the conversation is skipped — the router drifts up to the
+  // nearest level that fits — so a long session never lands on a model that
+  // has no room left for output (which surfaces as a truncated answer).
+  contextGuard: {
+    // Auto-disabled when no level declares a contextWindow.
+    enabled: true,
+    // A level "fits" while the conversation stays under window * headroom,
+    // leaving room for the answer.
+    headroom: 0.85,
+  },
   askEveryInputs: 3,
   fallbackChain: [],
   maxRetries: 1,
@@ -112,6 +123,7 @@ export function resolveConfig(input = {}) {
   cfg.costControl = normalizeCostControl(cfg.costControl)
   cfg.llmClassifier = normalizeClassifier(cfg.llmClassifier)
   cfg.freeQuota = normalizeFreeQuota(cfg.freeQuota)
+  cfg.contextGuard = normalizeContextGuard(cfg.contextGuard)
   cfg.askEveryInputs = clampInt(cfg.askEveryInputs, 1, 100, DEFAULT_CONFIG.askEveryInputs)
   cfg.fallbackChain = normalizeChain(cfg.fallbackChain)
   cfg.maxRetries = clampInt(cfg.maxRetries, 0, 5, DEFAULT_CONFIG.maxRetries)
@@ -120,7 +132,27 @@ export function resolveConfig(input = {}) {
   // behaviour.
   cfg.freeQuota.enabled = cfg.freeQuota.enabled
     && (cfg.freeQuota.routes.length > 0 || LEVEL_IDS.some((id) => cfg.levels[id]?.freeQuota === true))
+  // Nothing declares a window → the guard is inert (no behaviour change).
+  cfg.contextGuard.enabled = cfg.contextGuard.enabled
+    && LEVEL_IDS.some((id) => Number.isFinite(cfg.levels[id]?.contextWindow))
   return cfg
+}
+
+/**
+ * Normalize the context-window guard. `headroom` is clamped into (0, 1].
+ */
+function normalizeContextGuard(contextGuard) {
+  const guard = {
+    ...DEFAULT_CONFIG.contextGuard,
+    ...(contextGuard ?? {}),
+  }
+  guard.enabled = guard.enabled !== false
+  let headroom = Number(guard.headroom)
+  if (!Number.isFinite(headroom) || headroom <= 0 || headroom > 1) {
+    headroom = DEFAULT_CONFIG.contextGuard.headroom
+  }
+  guard.headroom = headroom
+  return guard
 }
 
 /**
@@ -236,12 +268,20 @@ function normalizeLevelRoute(route, where) {
   const normalized = normalizeRoute(route, where)
   // Levels always carry an explicit reasoning effort; absent → 'off' (no
   // thinking mode) so every level spells out its thinking intensity.
+  const contextWindow = route.contextWindow === undefined || route.contextWindow === null
+    ? undefined
+    : Number(route.contextWindow)
+  if (contextWindow !== undefined && (!Number.isSafeInteger(contextWindow) || contextWindow <= 0)) {
+    throw new Error(`mydsh-auto-model-router: "${where}.contextWindow" must be a positive integer, got ${JSON.stringify(route.contextWindow)}`)
+  }
   return {
     ...normalized,
     reasoningEffort: normalized.reasoningEffort ?? 'off',
     // A level may declare that its route is a free-quota route. The flag rides
     // along with the route so the router can prefer/demote it.
     ...route.freeQuota === true ? { freeQuota: true } : {},
+    // A level may declare its model's context window for the guard.
+    ...contextWindow !== undefined ? { contextWindow } : {},
   }
 }
 

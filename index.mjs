@@ -82,6 +82,7 @@ export function apply(ctx, input = {}) {
         levels: config.levels,
         costControl: config.costControl,
         freeQuota: config.freeQuota,
+        contextGuard: config.contextGuard,
         rules: config.rules,
         scoring: config.scoring,
         fallbackChain: config.fallbackChain,
@@ -263,6 +264,9 @@ export function apply(ctx, input = {}) {
   ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/message') {
       router.recordTokens(session.id, event.data?.message)
+      // The input side of the request that produced this message is the best
+      // context-size signal the context guard has.
+      router.recordUsage(session.id, event.data?.usage)
     }
     if (event.type === 'message') {
       const message = event.data?.message

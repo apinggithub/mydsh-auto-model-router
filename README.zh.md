@@ -336,3 +336,17 @@ dsh plugin --profile desktop add ./tier-cost
 ## License
 
 MIT
+
+### 上下文窗口守卫（contextGuard）
+
+档位可声明其模型的 `contextWindow`。会话实际上下文（最近一次请求的输入侧
+token，含缓存读写）超过 `window × headroom`（默认 0.85）时，**该档位被跳过**，
+路由向上漂到最近的装得下的档位；没有任何声明窗口装得下时保持原档（fail-open），
+让 provider 用真实错误说话、交给降级链处理。跳过每 (档位, 会话) 记录一次，
+`/status` 的 `contextGuard` 字段可见。未声明任何窗口时整层不生效。
+
+```yaml
+levels:
+  L0: { provider: bailian, model: qwen-max, contextWindow: 32768 }   # 小窗口模型的保护
+contextGuard: { enabled: true, headroom: 0.85 }
+```
