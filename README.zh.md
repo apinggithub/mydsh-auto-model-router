@@ -350,3 +350,37 @@ levels:
   L0: { provider: bailian, model: qwen-max, contextWindow: 32768 }   # 小窗口模型的保护
 contextGuard: { enabled: true, headroom: 0.85 }
 ```
+
+## 部署到其它电脑
+
+一台机器 = 两条命令（本仓库含两个插件）：
+
+```powershell
+git clone https://github.com/apinggithub/mydsh-auto-model-router
+cd mydsh-auto-model-router; cd ..
+# 宿主 0.2.x 会因插件 peer 钉死旧版本而拒装，先授予精确版本豁免（每个新版本各授一次）：
+dsh plugin --profile desktop allow-version '@apinggithub/mydsh-auto-model-router@0.1.1' --dsh-version 0.2.0-rc.2 --accept-risk
+dsh plugin --profile desktop add ./mydsh-auto-model-router
+dsh plugin --profile desktop add ./mydsh-auto-model-router/tier-cost   # 可选：按档位拆账
+```
+
+然后在该机器的 `profiles/<profile>/cordis.patch.yml` 里写完整档位块，**provider/model 必须
+是那条机器自己能用的路由，别照抄 id**：
+
+```yaml
+- id: mydsh-auto-model-router-runtime
+  name: '@apinggithub/mydsh-auto-model-router'
+  config:
+    levels:
+      L0: { provider: ..., model: ..., reasoningEffort: off,  contextWindow: ..., freeQuota: true }
+      L1: { provider: ..., model: ..., reasoningEffort: low,   contextWindow: ..., freeQuota: true }
+      L2: { provider: ..., model: ..., reasoningEffort: high,  contextWindow: ..., freeQuota: true }
+      L3: { provider: ..., model: ..., reasoningEffort: max,   contextWindow: ... }
+    contextGuard: { enabled: true, headroom: 0.85 }
+    freeQuota:    { enabled: true, demoteOnError: true, notify: true }
+```
+
+⚠️ 内置默认 levels 是历史值（`deepseek-v4-flash` + `medium`），在 0.2.x 宿主上**两者都不是
+合法值**——新机器必须自带档位块，否则选 Auto 会直接失败。
+`tier-cost` 对宿主其余部分零依赖：缺路由插件时全部归 manual/unknown，缺计费插件时只统计
+token、费用记 0，均会在面板 notes 里说明。

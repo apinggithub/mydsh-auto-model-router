@@ -387,3 +387,39 @@ levels:
   L0: { provider: bailian, model: qwen-max, contextWindow: 32768 }   # guard small windows
 contextGuard: { enabled: true, headroom: 0.85 }
 ```
+
+## Deploying to another machine
+
+One machine = two commands (this repository ships both plugins):
+
+```powershell
+git clone https://github.com/apinggithub/mydsh-auto-model-router
+cd mydsh-auto-model-router; cd ..
+# On 0.2.x hosts the plugin's stale pinned peers make the installer refuse; grant the
+# exact-version exemption first (per new plugin version):
+dsh plugin --profile desktop allow-version '@apinggithub/mydsh-auto-model-router@0.1.1' --dsh-version 0.2.0-rc.2 --accept-risk
+dsh plugin --profile desktop add ./mydsh-auto-model-router
+dsh plugin --profile desktop add ./mydsh-auto-model-router/tier-cost   # optional: per-tier cost panel
+```
+
+Then write a full levels block into that machine's `profiles/<profile>/cordis.patch.yml` —
+provider/model must be routes **that machine** can actually use (do not copy ids across machines):
+
+```yaml
+- id: mydsh-auto-model-router-runtime
+  name: '@apinggithub/mydsh-auto-model-router'
+  config:
+    levels:
+      L0: { provider: ..., model: ..., reasoningEffort: off,  contextWindow: ..., freeQuota: true }
+      L1: { provider: ..., model: ..., reasoningEffort: low,   contextWindow: ..., freeQuota: true }
+      L2: { provider: ..., model: ..., reasoningEffort: high,  contextWindow: ..., freeQuota: true }
+      L3: { provider: ..., model: ..., reasoningEffort: max,   contextWindow: ... }
+    contextGuard: { enabled: true, headroom: 0.85 }
+    freeQuota:    { enabled: true, demoteOnError: true, notify: true }
+```
+
+⚠️ The built-in default levels carry legacy values (`deepseek-v4-flash` + `medium`) that are
+both invalid on 0.2.x hosts — a fresh machine must ship its own levels block or Auto fails
+outright. `tier-cost` has zero hard dependencies beyond the host: without the router every
+turn folds into manual/unknown, without the billing plugin tokens are counted and cost
+stays 0 — both cases self-report in the panel notes.
