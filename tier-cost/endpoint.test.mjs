@@ -81,6 +81,27 @@ function mockCtx() {
     captured,
     ctx: {
       effect: (fn) => fn(),
+      // At boot the webserver is not up yet, so the lookup finds nothing: the
+      // route must be claimed through `inject` instead.
+      get: () => undefined,
+      inject: (deps, callback) => {
+        if (!deps.includes('webServer')) return
+        callback({
+          effect: (fn) => fn(),
+          webServer: { register: (route) => { captured.route = route; return () => {} } },
+        })
+      },
+    },
+  }
+}
+
+/** A context without scoped injection, for the `ctx.get` fallback path. */
+function mockCtxWithoutInject() {
+  const captured = { route: null }
+  return {
+    captured,
+    ctx: {
+      effect: (fn) => fn(),
       get: (service) => (service === 'webServer'
         ? { register: (route) => { captured.route = route; return () => {} } }
         : undefined),
@@ -174,4 +195,10 @@ test('a missing sessions directory reports zero instead of throwing', async () =
   assert.equal(result.status, 200)
   assert.equal(result.json.sessionLogs, 0)
   assert.equal(result.json.turns, 0)
+})
+
+test('the usage route is still claimed on contexts without scoped injection', () => {
+  const { ctx, captured } = mockCtxWithoutInject()
+  apply(ctx, { sessionsDir: path.join(os.tmpdir(), 'tier-cost-does-not-exist-xyz') })
+  assert.equal(captured.route.path, USAGE_ROUTE)
 })

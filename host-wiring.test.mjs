@@ -26,9 +26,16 @@ function mockCtx() {
       const dispose = fn()
       return () => dispose?.()
     },
-    get: (service) => (service === 'webServer'
-      ? { register: (route) => { routes.push(route); return () => {} } }
-      : undefined),
+    // At boot the webserver is not up yet: this lookup returns nothing, which
+    // is exactly why the route must be claimed through `inject` below.
+    get: () => undefined,
+    inject: (deps, callback) => {
+      if (!deps.includes('webServer')) return
+      callback({
+        effect: (fn) => fn(),
+        webServer: { register: (route) => { routes.push(route); return () => {} } },
+      })
+    },
     on: (event, handler) => {
       if (!handlers.has(event)) handlers.set(event, [])
       handlers.get(event).push(handler)
@@ -38,6 +45,30 @@ function mockCtx() {
     ctx,
     routes,
     emit: (event) => handlers.get(event) ?? [],
+  }
+}
+
+/** A context without scoped injection, for the `ctx.get` fallback path. */
+function mockCtxWithoutInject() {
+  const routes = []
+  const handlers = new Map()
+  return {
+    routes,
+    emit: (event) => handlers.get(event) ?? [],
+    ctx: {
+      logger: { info() {} },
+      llm: { registerAdapter: () => () => {} },
+      tokenMeter: { estimateMessage: () => ({ totalTokens: 0 }) },
+      provide() {},
+      effect: (fn) => fn(),
+      get: (service) => (service === 'webServer'
+        ? { register: (route) => { routes.push(route); return () => {} } }
+        : undefined),
+      on: (event, handler) => {
+        if (!handlers.has(event)) handlers.set(event, [])
+        handlers.get(event).push(handler)
+      },
+    },
   }
 }
 
@@ -128,6 +159,15 @@ test('a real model choice passes through untouched', async () => {
   await input(emit, agent, 'hi')
   const decision = await request(emit, agent, { provider: 'qianwen', model: 'qwen3.8-flash' })
   assert.deepEqual(decision, { provider: 'qianwen', model: 'qwen3.8-flash' })
+})
+
+test('the status route is still claimed on contexts without scoped injection', () => {
+  const { ctx, routes } = mockCtxWithoutInject()
+  apply(ctx, CONFIG)
+  assert.ok(
+    routes.find((route) => route.path === '/api/mydsh-auto-model-router/status'),
+    'fallback registration claimed the status route',
+  )
 })
 
 test('a failing free route is demoted, retried on the paid route and reported once', async () => {

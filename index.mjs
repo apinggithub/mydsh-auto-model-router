@@ -64,34 +64,48 @@ export function apply(ctx, input = {}) {
   // ── HTTP status endpoint for the browser settings section ─────────────
   // The client fetch()es /api/mydsh-auto-model-router/status to render the
   // current routing policy (no localStorage / DOM-transcript dependency).
-  // Uses ctx.get('webServer') so deployments without the webserver degrade
-  // to settings-section "no report" instead of failing activation.
-  ctx.effect(() => {
+  //
+  // The webserver is claimed through a *scoped injection* instead of a hard
+  // `inject` entry: headless deployments have no webserver and must still
+  // route. A plain `ctx.get('webServer')` is not enough — at boot the service
+  // is not up yet, so the lookup returns nothing, the registration is skipped,
+  // and the exact route is never claimed (requests then fall through to the
+  // `/api` prefix owner and answer 401). `ctx.inject` runs the callback when —
+  // and only when — the service exists.
+  const statusRoute = {
+    kind: 'exact',
+    path: '/api/mydsh-auto-model-router/status',
+    handler: (_req, res) => {
+      const body = JSON.stringify({
+        ok: true,
+        report: statusReport(config, resolveLocale(ctx)),
+        levels: config.levels,
+        costControl: config.costControl,
+        freeQuota: config.freeQuota,
+        rules: config.rules,
+        scoring: config.scoring,
+        fallbackChain: config.fallbackChain,
+      })
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-cache',
+      })
+      res.end(body)
+    },
+  }
+  const registerStatusRoute = (scope) => scope.effect(
+    () => scope.webServer.register(statusRoute),
+    'modelRouter.statusEndpoint()',
+  )
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['webServer'], registerStatusRoute)
+  } else {
+    // Fallback for contexts without scoped injection (tests, older hosts).
     const webServer = ctx.get?.('webServer')
-    if (webServer?.register === undefined) return
-    const dispose = webServer.register({
-      kind: 'exact',
-      path: '/api/mydsh-auto-model-router/status',
-      handler: (_req, res) => {
-        const body = JSON.stringify({
-          ok: true,
-          report: statusReport(config, resolveLocale(ctx)),
-          levels: config.levels,
-          costControl: config.costControl,
-          freeQuota: config.freeQuota,
-          rules: config.rules,
-          scoring: config.scoring,
-          fallbackChain: config.fallbackChain,
-        })
-        res.writeHead(200, {
-          'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'no-cache',
-        })
-        res.end(body)
-      },
-    })
-    return dispose
-  }, 'modelRouter.statusEndpoint()')
+    if (webServer?.register !== undefined) {
+      registerStatusRoute({ effect: (fn) => fn(), webServer })
+    }
+  }
 
   // ── session start: fresh routing state per session ─────────────────────
   // Injects the status report into the session (visible, non-blocking) but

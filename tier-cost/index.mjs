@@ -246,31 +246,42 @@ export function apply(ctx, config = {}) {
   const options = resolveOptions(config)
   const state = { mapCache: undefined, costCache: undefined, cache: new Map() }
 
-  ctx.effect(() => {
+  const usageRoute = {
+    kind: 'exact',
+    path: USAGE_ROUTE,
+    handler: async (request, response) => {
+      try {
+        const origin = options.baseUrl
+          ?? originFromHost(request?.headers?.host ?? request?.headers?.Host)
+        const report = await buildReport(options, origin, state)
+        const body = JSON.stringify(report)
+        response.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-length': Buffer.byteLength(body),
+        })
+        response.end(body)
+      } catch (error) {
+        const body = JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })
+        response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(body)
+      }
+    },
+  }
+  const registerUsageRoute = (scope) => scope.effect(
+    () => scope.webServer.register(usageRoute),
+    'tierCost.usageEndpoint()',
+  )
+  // Claimed through a scoped injection rather than a bare
+  // `ctx.get('webServer')`: at boot the service is not up yet, so the lookup
+  // returns nothing, the registration is skipped, and the exact route is never
+  // claimed — requests then fall through to the `/api` prefix owner (401).
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['webServer'], registerUsageRoute)
+  } else {
     const webServer = ctx.get?.('webServer')
-    if (webServer?.register === undefined) return undefined
-    const dispose = webServer.register({
-      kind: 'exact',
-      path: USAGE_ROUTE,
-      handler: async (request, response) => {
-        try {
-          const origin = options.baseUrl
-            ?? originFromHost(request?.headers?.host ?? request?.headers?.Host)
-          const report = await buildReport(options, origin, state)
-          const body = JSON.stringify(report)
-          response.writeHead(200, {
-            'content-type': 'application/json; charset=utf-8',
-            'cache-control': 'no-store',
-            'content-length': Buffer.byteLength(body),
-          })
-          response.end(body)
-        } catch (error) {
-          const body = JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })
-          response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
-          response.end(body)
-        }
-      },
-    })
-    return dispose
-  }, 'tierCost.usageEndpoint()')
+    if (webServer?.register !== undefined) {
+      registerUsageRoute({ effect: (fn) => fn(), webServer })
+    }
+  }
 }
