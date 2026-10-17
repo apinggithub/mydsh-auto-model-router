@@ -455,3 +455,26 @@ cd tier-cost && npm publish # @apinggithub/dsh-tier-cost
 From 0.2.0 the peerDependencies are host-adaptive ranges, so fresh machines no
 longer need the allow-version exemption (only 0.1.1 and earlier did). Run
 `npm login --scope=apinggithub` once per package account setup.
+
+## The silent-billing trap of free quota (real incident · rules)
+
+A true story from the author's machine: L1 pointed at the Bailian free model `glm-5.3`
+(`freeQuota: true`). When the quota ran out the provider did **not** return the promised
+403 (`stop-when-exhausted` had not actually taken effect for that model) — calls kept
+succeeding, now silently at pay-as-you-go rates, for a full day until a billing alert
+arrived. `demoteOnError` had no error to catch.
+
+Three rules, all required:
+
+1. **Verify "stop when exhausted" per model on the provider side** (make one over-quota
+   call and confirm a 403). The router can only switch lines on errors it can see;
+   a provider that silently converts a free route into paid billing is invisible to it.
+2. **Keep `costControl.defaultLevel` on a stable paid tier.** In this file's examples a
+   `defaultLevel: L1` where L1 is a free tier is exactly the incident shape. Prefer free
+   only at L0, or keep an explicit paid replacement for every free tier.
+3. **Watch the billing panel per tier.** A "free" tier whose cost line keeps growing and
+   never zeroes is burning money — drop it from the free routes immediately.
+
+> Another sharp edge: quota pools are counted per **provider+model**. The same id on two
+> providers (e.g. `qwen3.8-flash` on both `bailian` and `qianwen`) are **separate pools**;
+> quota and billing never cross over.
