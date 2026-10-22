@@ -116,6 +116,48 @@ npm install @apinggithub/mydsh-auto-model-router
 dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
 ```
 
+## Host compatibility
+
+DSH treats a profile's plugin tree as one composition: a bundle whose patch
+fails can stop the whole Harness from starting, and a plugin entry that throws
+is reported as *did not activate* — the router simply disappears from the
+running session. This plugin is therefore written to **mount, degrade and
+log** rather than fail on a host whose surface moved.
+
+| Host line | Status |
+| --- | --- |
+| 0.1.x – 0.3.x | Tested (`0.2.1-rc.2` is the reference host) |
+| 0.4.x – 1.x | Allowed to mount, reported as *untested* in the log and in `GET /api/mydsh-auto-model-router/status` |
+
+At mount, `compat.mjs` probes every API the plugin touches
+(`llm.registerAdapter`, `llm.listModels`, `llm.stream`, scoped `ctx.inject`,
+`webServer.register`, the optional `tokenMeter`) and records the result in the
+status payload under `host.compat`. What that buys you on an unknown host:
+
+- **No hard dependency on `tokenMeter`** — it is looked up softly and token
+  spend falls back to the plugin's own estimator.
+- **No virtual-provider requirement** — without `llm.registerAdapter` the
+  plugin still mounts and logs one warning; the `Auto` model simply does not
+  appear in the picker.
+- **HTTP route aliases** — `webServer.register()`, `route()` or `addRoute()`
+  are all accepted; without any of them the settings page shows its "no report
+  yet" state instead of breaking.
+- **Payload tolerance** — event handlers accept the current `{ agent }` /
+  `(session, event)` shapes *and* a bare-agent / `{ session, event }` payload,
+  and a handler that throws hands the host's own proposal back untouched. A
+  router bug can no longer fail a user request.
+- **No process globals** — the adapter is created per mount and closes over
+  that mount's router, so several profiles in one process cannot overwrite
+  each other.
+- **Version report** — when the host exposes its version (environment, app
+  service, or a resolvable manifest), a host outside `>=0.1.0-0 <0.4.0` logs
+  one warning naming both versions. Capability probes run regardless, so a
+  host that hides its version still reports what it actually provides.
+
+The peer ranges (`>=0.1.0-0 <1.0.0`) and `engines.dsh` are deliberately wider
+than the tested range so an upgrade does not hard-block installation; the
+runtime warning is what tells you to file an issue.
+
 ## Configuration
 
 Add to your profile's `cordis.patch.yml`:

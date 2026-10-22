@@ -1,4 +1,4 @@
-﻿// Host-wiring test: drives the plugin's real `apply()` against a mock cordis
+// Host-wiring test: drives the plugin's real `apply()` against a mock cordis
 // context, so the event wiring (not just the router logic) is exercised 鈥?// agent/request routing, the free-quota demotion on agent/request-error, the
 // retry path, the status endpoint payload and the one-shot notice.
 //
@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { apply, name, inject } from './index.mjs'
-import { AutoAdapter } from './auto-adapter.mjs'
+import { createAutoAdapter } from './auto-adapter.mjs'
 
 const GLM = { provider: 'glm', model: 'glm-4.7-flash' }
 const DS = { provider: 'deepseek-account', model: 'deepseek-flash' }
@@ -124,9 +124,12 @@ async function input(emit, agent, text) {
 
 test('the plugin declares the services it depends on', () => {
   assert.equal(name, 'mydsh-auto-model-router')
-  for (const service of ['agents', 'sessions', 'tools', 'llm', 'tokenMeter']) {
+  for (const service of ['agents', 'sessions', 'tools', 'llm']) {
     assert.ok(inject.includes(service), `injects ${service}`)
   }
+  // tokenMeter is looked up softly: a future host that renames it must not
+  // turn into a failed mount (DSH boot is all-or-nothing).
+  assert.ok(!inject.includes('tokenMeter'), 'tokenMeter stays a soft dependency')
 })
 
 test('Auto requests are routed to the free level, and the status route is published', async () => {
@@ -253,7 +256,18 @@ test('demotion survives a failing notice channel', async () => {
 })
 
 test('the virtual auto adapter satisfies the 0.2.x prepareCall contract', async () => {
-  const call = await AutoAdapter.prepareCall('auto', 'auto', undefined)
+  const seen = []
+  const llm = {
+    stream: (options) => (async function* () {
+      yield { forwardedTo: `${options.provider}/${options.model}`, effort: options.reasoningEffort }
+    })(),
+  }
+  const router = {
+    current: () => ({ provider: 'bailian', model: 'qwen3.8-flash', reasoningEffort: 'off' }),
+  }
+  const adapter = createAutoAdapter({ router: () => router, llm: () => llm })
+
+  const call = await adapter.prepareCall('auto', 'auto', undefined)
   // Exactly what normalizeModelInfo validates on the host side.
   assert.equal(call.model.provider, 'auto')
   assert.equal(call.model.id, 'auto')
@@ -263,20 +277,6 @@ test('the virtual auto adapter satisfies the 0.2.x prepareCall contract', async 
 
   // The stream it hands back forwards to the router's current decision, so a
   // call the router did not intercept still reaches a real model.
-  const seen = []
-  globalThis.__dshLl = {
-    stream: (options) => (async function* () {
-      yield { forwardedTo: `${options.provider}/${options.model}`, effort: options.reasoningEffort }
-    })(),
-  }
-  globalThis.__dshAutoModelRouter = {
-    current: () => ({ provider: 'bailian', model: 'qwen3.8-flash', reasoningEffort: 'off' }),
-  }
-  try {
-    for await (const chunk of call.stream({ sessionId: 's1' })) seen.push(chunk)
-  } finally {
-    delete globalThis.__dshLl
-    delete globalThis.__dshAutoModelRouter
-  }
+  for await (const chunk of call.stream({ sessionId: 's1' })) seen.push(chunk)
   assert.deepEqual(seen, [{ forwardedTo: 'bailian/qwen3.8-flash', effort: 'off' }])
 })

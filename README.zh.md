@@ -99,6 +99,38 @@ npm install @apinggithub/mydsh-auto-model-router
 dsh plugin --profile web add @apinggithub/mydsh-auto-model-router
 ```
 
+## 宿主兼容性
+
+DSH 把 profile 的插件树当成一次组合：补丁失败的 bundle 可能让整个 Harness 起不来，
+而抛错的插件条目会被标记为「did not activate」——路由器从会话里直接消失。
+所以本插件的行为约定是**能挂载、能降级、能打日志**，而不是在接口变动时直接失败。
+
+| 宿主版本线 | 状态 |
+| --- | --- |
+| 0.1.x – 0.3.x | 已实测（`0.2.1-rc.2` 为基准宿主） |
+| 0.4.x – 1.x | 允许挂载，但在日志与 `GET /api/mydsh-auto-model-router/status` 中标记为「未实测」 |
+
+挂载时 `compat.mjs` 会探测插件用到的每个接口（`llm.registerAdapter`、
+`llm.listModels`、`llm.stream`、scoped `ctx.inject`、`webServer.register`、
+可选的 `tokenMeter`），结果记录在状态接口的 `host.compat` 字段里。在未知宿主上：
+
+- **`tokenMeter` 不再是硬依赖**——软查找，缺失时改用插件自带的估算器。
+- **没有 `registerAdapter` 也能挂载**——只记一条警告，模型选择框里不出现
+  `Auto`，路由逻辑本身不受影响。
+- **HTTP 路由方法适配**——`webServer.register()`、`route()`、`addRoute()`
+  都可接受；全都没有时设置页显示「暂无报告」，而不是报错。
+- **事件负载容错**——既接受当前的 `{ agent }` / `(session, event)` 形状，也接受
+  裸 agent / `{ session, event }` 形状；处理函数抛错时原样返回宿主自己的提案，
+  路由器的 bug 不会再让用户请求失败。
+- **不再使用进程级全局变量**——适配器按每次挂载创建并闭包引用该次挂载的
+  router，同进程多 profile 不会互相覆盖。
+- **版本报告**——当宿主愿意暴露版本（环境变量、app 服务或可解析的 manifest）时，
+  超出 `>=0.1.0-0 <0.4.0` 会打一条同时含宿主版本与实测范围的警告。能力探测始终
+  执行，因此即使宿主隐藏版本，也能从状态接口看到它实际提供了哪些接口。
+
+peer 范围（`>=0.1.0-0 <1.0.0`）和 `engines.dsh` 故意比实测范围宽，避免宿主升级后
+直接拒装；真正的提示是运行时那条警告——看到它就请提 issue。
+
 ## 配置
 
 在 profile 的 `cordis.patch.yml` 中添加：

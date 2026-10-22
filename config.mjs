@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.1.0'
+export const PLUGIN_VERSION = '0.2.1'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -150,6 +150,9 @@ export function resolveConfig(input = {}) {
   // Nothing declares a window → the guard is inert (no behaviour change).
   cfg.contextGuard.enabled = cfg.contextGuard.enabled
     && LEVEL_IDS.some((id) => Number.isFinite(cfg.levels[id]?.contextWindow))
+  // Exposed to the status endpoint and the browser settings page so a bug
+  // report always names the build that produced it.
+  cfg.pluginVersion = PLUGIN_VERSION
   return cfg
 }
 

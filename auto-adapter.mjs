@@ -13,6 +13,13 @@
 // intercept this particular call — a titled step, compaction, or a listener
 // ordering gap), `stream()` forwards to the router's current per-session
 // decision instead of throwing, so routing is never a hard failure.
+//
+// The adapter is created per mount through `createAutoAdapter()` and closes
+// over the router and the llm service of *that* context. Earlier revisions
+// published them through `globalThis.__dshAutoModelRouter` / `__dshLl`, which
+// breaks as soon as one process hosts more than one profile (the second mount
+// overwrites the first adapter's dependencies) and leaks a plugin-private API
+// onto the global object.
 
 import { routesEqual } from './router.mjs'
 
@@ -35,64 +42,85 @@ export function autoResolveModel(provider, model) {
 }
 
 /**
- * The virtual adapter object. `stream()` forwards to the router's decision
- * when it is reachable, so the auto provider never hard-fails routing.
+ * Build the virtual adapter for one plugin mount.
+ *
+ * Both dependencies are read lazily through getters so the adapter always sees
+ * the live router / llm service (they are created before the adapter, but the
+ * indirection keeps the object serializable and testable).
+ *
+ * @param {object} [resolve]
+ * @param {() => object | undefined} [resolve.router] - returns the ModelRouter.
+ * @param {() => object | undefined} [resolve.llm] - returns `ctx.llm`.
+ * @returns {object} adapter understood by `ctx.llm.registerAdapter()`
  */
-export const AutoAdapter = {
-  providerInfo: autoProviderInfo,
-  providerRetryPolicy() {
-    return undefined
-  },
-  listModels: async () => autoListModels(),
-  resolveModel: async (provider, model) => autoResolveModel(provider, model),
-  /**
-   * The newer adapter contract (host 0.2.x): the runtime validates a request
-   * against the model's capabilities and binds it to one concrete adapter
-   * generation through `prepareCall(provider, model, signal)`, then dispatches
-   * through the returned `stream`. The virtual `auto` provider owns no
-   * generation of its own, so it returns the metadata it already advertises and
-   * routes the stream through the same forwarding generator below.
-   *
-   * Without this, every call the router does not intercept — a title step,
-   * compaction, a listener ordering gap — died with
-   * "registration.adapter.prepareCall is not a function" on hosts past 0.1.x.
-   * (`normalizeModelInfo` requires provider === the registration id, id === the
-   * requested model, and a non-empty name; everything else is optional.)
-   */
-  async prepareCall(provider, model) {
-    return {
-      model: await AutoAdapter.resolveModel(provider, model),
-      stream: (options) => AutoAdapter.stream(options),
-    }
-  },
-  async *stream(options) {
-    const router = globalThis.__dshAutoModelRouter
-    if (router !== undefined) {
-      const sessionId = options?.sessionId ?? ''
-      const route = router.current(sessionId)
-      if (route && !routesEqual(route, { provider: AUTO_PROVIDER, model: AUTO_MODEL })) {
-        // Forward this request to the routed model through the same llm
-        // runtime; the adapter contract requires we stream chunks back.
-        const llm = globalThis.__dshLl
-        if (llm?.stream !== undefined) {
-          // ctx.llm.stream returns the AsyncIterable directly (not { stream }).
-          const stream = llm.stream({
-            ...options,
-            provider: route.provider,
-            model: route.model,
-            ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
-          })
-          for await (const chunk of stream) yield chunk
-          return
+export function createAutoAdapter(resolve = {}) {
+  const readRouter = typeof resolve.router === 'function' ? resolve.router : () => undefined
+  const readLlm = typeof resolve.llm === 'function' ? resolve.llm : () => undefined
+
+  /** @type {object} */
+  const adapter = {
+    providerInfo: autoProviderInfo,
+    providerRetryPolicy() {
+      return undefined
+    },
+    listModels: async () => autoListModels(),
+    resolveModel: async (provider, model) => autoResolveModel(provider, model),
+    /**
+     * The 0.2.x adapter contract: the runtime validates a request against the
+     * model's capabilities and binds it to one concrete adapter generation
+     * through `prepareCall(provider, model, signal)`, then dispatches through
+     * the returned `stream`. The virtual `auto` provider owns no generation of
+     * its own, so it returns the metadata it already advertises and routes the
+     * stream through the forwarding generator below.
+     *
+     * Hosts before 0.2.x call `stream()` directly; keeping both entry points is
+     * what makes one package work on 0.1 and 0.2 alike.
+     */
+    async prepareCall(provider, model) {
+      return {
+        model: await adapter.resolveModel(provider, model),
+        stream: (options) => adapter.stream(options),
+      }
+    },
+    async *stream(options) {
+      const router = readRouter()
+      if (router !== undefined && router !== null) {
+        const sessionId = options?.sessionId ?? ''
+        const route = router.current?.(sessionId)
+        if (route && !routesEqual(route, { provider: AUTO_PROVIDER, model: AUTO_MODEL })) {
+          // Forward this request to the routed model through the same llm
+          // runtime; the adapter contract requires we stream chunks back.
+          const llm = readLlm()
+          if (typeof llm?.stream === 'function') {
+            // ctx.llm.stream returns the AsyncIterable directly (not { stream }).
+            const stream = llm.stream({
+              ...options,
+              provider: route.provider,
+              model: route.model,
+              ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
+            })
+            for await (const chunk of stream) yield chunk
+            return
+          }
         }
       }
-    }
-    throw new Error(
-      'mydsh-auto-model-router: request reached the virtual "auto" provider with no router '
-      + 'decision available. Check that the plugin is mounted.',
-    )
-  },
+      throw new Error(
+        'mydsh-auto-model-router: request reached the virtual "auto" provider with no router '
+        + 'decision available. Check that the plugin is mounted.',
+      )
+    },
+  }
+  return adapter
 }
+
+/**
+ * Unwired singleton kept for import compatibility with earlier revisions.
+ *
+ * It advertises the model metadata but cannot forward a stream (it has no
+ * router), so `stream()` reports the missing mount instead of silently
+ * producing an empty answer.
+ */
+export const AutoAdapter = createAutoAdapter()
 
 /**
  * Whether a proposed request config selects the Auto provider.
