@@ -341,9 +341,10 @@ export function apply(ctx, input = {}) {
         ...proposed,
         provider: route.provider,
         model: route.model,
-        // Levels always carry an explicit reasoningEffort (default 'off'), so
-        // the routed effort is always stated — including 'off' for no thinking.
-        reasoningEffort: route.reasoningEffort,
+        // A level that omits `reasoningEffort` (configured as `null`) has no
+        // thinking mode: sending an effort to a model without reasoning
+        // metadata would be rejected with UNSUPPORTED_REASONING_EFFORT.
+        ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
       }
     } catch (error) {
       // The router must never be able to fail a user request: hand the host's

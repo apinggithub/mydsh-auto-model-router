@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.2.2'
+export const PLUGIN_VERSION = '0.2.3'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -297,9 +297,13 @@ function normalizeLevels(levels) {
 }
 
 function normalizeLevelRoute(route, where) {
+  // `reasoningEffort: null` means "this route has no thinking mode at all":
+  // the field is omitted so a provider whose model declares no reasoning
+  // metadata (Zhipu/Bailian flash models) is not rejected with
+  // UNSUPPORTED_REASONING_EFFORT.
+  const omitEffort = route.reasoningEffort === null
   const normalized = normalizeRoute(route, where)
-  // Levels always carry an explicit reasoning effort; absent → 'off' (no
-  // thinking mode) so every level spells out its thinking intensity.
+  // Every other level carries an explicit effort; absent → 'off' (no thinking).
   const contextWindow = route.contextWindow === undefined || route.contextWindow === null
     ? undefined
     : Number(route.contextWindow)
@@ -308,7 +312,7 @@ function normalizeLevelRoute(route, where) {
   }
   return {
     ...normalized,
-    reasoningEffort: normalized.reasoningEffort ?? 'off',
+    ...omitEffort ? {} : { reasoningEffort: normalized.reasoningEffort ?? 'off' },
     // A level may declare that its route is a free-quota route. The flag rides
     // along with the route so the router can prefer/demote it.
     ...route.freeQuota === true ? { freeQuota: true } : {},
@@ -328,7 +332,7 @@ function normalizeRoute(route, where) {
       `mydsh-auto-model-router: "${where}" needs both provider and model, got ${JSON.stringify(route)}`,
     )
   }
-  const reasoningEffort = route.reasoningEffort === undefined
+  const reasoningEffort = route.reasoningEffort === undefined || route.reasoningEffort === null
     ? undefined
     : String(route.reasoningEffort).trim() || undefined
   return {

@@ -2,6 +2,22 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.2.3 — routes without a thinking mode
+
+The point of the plugin is free-quota-first routing, but every level
+materialised a `reasoningEffort` (defaulting to `off`). The host validates a
+request against the exact model before any provider I/O and rejects an effort
+on a model that advertises no reasoning metadata with
+`UNSUPPORTED_REASONING_EFFORT` — so Zhipu/Bailian flash models could never be
+routed to, and Auto stayed on DeepSeek.
+
+- `reasoningEffort: null` on a level now means "this route has no thinking
+  mode": the field is omitted from both the level and the rewritten request.
+  Omitting the key entirely still defaults to `off`, so existing configs keep
+  their behaviour.
+- `freeQuota.routes` entries and free levels are unaffected otherwise.
+- Tests: new `config-effort.test.mjs` (4 cases). 75 tests.
+
 ## 0.2.2 — the virtual model tells the host what it can do
 
 Reported on DSH 0.2.1: picking **Auto** in a thinking conversation failed with
