@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.2.6'
+export const PLUGIN_VERSION = '0.3.0'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -114,6 +114,27 @@ const DEFAULT_CONFIG = Object.freeze({
     // Re-read provider catalogs every N ms (also validated once at activation).
     refreshMs: 600_000,
   },
+  // Tier 7: quota watchdog. Reads the cloud bill (read-only, via the provider's
+  // billing API) and retires a route the moment a "free" model starts billing;
+  // a balance floor stops paid routes entirely. Off by default — it needs
+  // cloud credentials.
+  quotaWatch: {
+    enabled: false,
+    // Which configured provider the bill belongs to (routes to retire).
+    provider: 'bailian-dell-vostro',
+    // Cloud product code the bill is filtered by (`sfm` = 百炼).
+    productCode: 'sfm',
+    pollMs: 1_800_000,
+    // Stop choosing paid routes once the available balance drops below this.
+    // 0 disables the floor.
+    balanceFloorCny: 10,
+    // Retire a route whose model shows any spend in the current billing cycle.
+    demoteOnSpend: true,
+    // Credential refs resolved through ctx.credentials (never inline secrets).
+    accessKeyIdRef: 'ALIBABA_CLOUD_ACCESS_KEY_ID',
+    accessKeySecretRef: 'ALIBABA_CLOUD_ACCESS_KEY_SECRET',
+    timeoutMs: 20_000,
+  },
   askEveryInputs: 3,
   fallbackChain: [],
   maxRetries: 1,
@@ -139,6 +160,7 @@ export function resolveConfig(input = {}) {
   cfg.freeQuota = normalizeFreeQuota(cfg.freeQuota)
   cfg.contextGuard = normalizeContextGuard(cfg.contextGuard)
   cfg.modelsGuard = normalizeModelsGuard(cfg.modelsGuard)
+  cfg.quotaWatch = normalizeQuotaWatch(cfg.quotaWatch)
   cfg.askEveryInputs = clampInt(cfg.askEveryInputs, 1, 100, DEFAULT_CONFIG.askEveryInputs)
   cfg.fallbackChain = normalizeChain(cfg.fallbackChain)
   cfg.maxRetries = clampInt(cfg.maxRetries, 0, 5, DEFAULT_CONFIG.maxRetries)
@@ -251,11 +273,47 @@ function normalizeHeuristic(heuristic) {
   return h
 }
 
+/**
+ * The quota watchdog: read-only cloud-billing polling.
+ *
+ * `provider` names which configured provider the bill describes (that is what
+ * gets retired when a model starts billing); the credential refs are resolved
+ * through `ctx.credentials`, so no secret ever lands in the profile.
+ */
+function normalizeQuotaWatch(quotaWatch) {
+  const q = {
+    ...DEFAULT_CONFIG.quotaWatch,
+    ...(quotaWatch ?? {}),
+  }
+  q.enabled = q.enabled === true
+  q.demoteOnSpend = q.demoteOnSpend !== false
+  q.provider = String(q.provider ?? '').trim()
+  q.productCode = String(q.productCode ?? '').trim()
+  q.accessKeyIdRef = String(q.accessKeyIdRef ?? '').trim()
+  q.accessKeySecretRef = String(q.accessKeySecretRef ?? '').trim()
+  q.pollMs = clampInt(q.pollMs, 60_000, 24 * 60 * 60 * 1000, DEFAULT_CONFIG.quotaWatch.pollMs)
+  q.balanceFloorCny = Number.isFinite(Number(q.balanceFloorCny)) && Number(q.balanceFloorCny) >= 0
+    ? Number(q.balanceFloorCny)
+    : DEFAULT_CONFIG.quotaWatch.balanceFloorCny
+  q.timeoutMs = clampInt(q.timeoutMs, 5_000, 120_000, DEFAULT_CONFIG.quotaWatch.timeoutMs)
+  if (q.enabled) {
+    for (const [field, value] of [
+      ['provider', q.provider],
+      ['accessKeyIdRef', q.accessKeyIdRef],
+      ['accessKeySecretRef', q.accessKeySecretRef],
+    ]) {
+      if (value === '') {
+        throw new Error(`mydsh-auto-model-router: quotaWatch.${field} must be a non-empty string`)
+      }
+    }
+  }
+  return q
+}
+
 function normalizeScoring(scoring) {
   const s = {
     ...DEFAULT_CONFIG.scoring,
-    ...(scoring ?? {}),
-  }
+    ...(scoring ?? {}),  }
   const weights = {}
   for (const id of LEVEL_IDS) {
     const value = Number(s.weights?.[id])

@@ -29,6 +29,7 @@
 import { resolveConfig } from './config.mjs'
 import { ModelRouter } from './router.mjs'
 import { createAutoAdapter, isAutoSelection } from './auto-adapter.mjs'
+import { createQuotaWatch } from './quota-watch.mjs'
 import {
   reportStatus, persistStatusReport, statusReport, notifyDowngrade,
   askDowngrade, resolveLocale, askModeSelection, askFixedLevel,
@@ -135,6 +136,30 @@ export function apply(ctx, input = {}) {
     return () => clearInterval(timer)
   }, 'modelRouter.catalogWatch()')
 
+  // ── quota watchdog: retire routes that stopped being free ───────────────
+  // Read-only billing poll (Aliyun RPC via a cloud key resolved from
+  // ctx.credentials); off unless configured, and inert when the host exposes no
+  // credentials service.
+  let quotaWatch
+  if (config.quotaWatch.enabled) {
+    const credentials = readService(ctx, 'credentials')
+    if (typeof credentials?.resolve === 'function') {
+      quotaWatch = createQuotaWatch({
+        config: config.quotaWatch,
+        router,
+        credentials,
+        logger: ctx.logger,
+      })
+      ctx.effect?.(() => quotaWatch.start(), 'modelRouter.quotaWatch()')
+    } else {
+      warn(
+        'quotaWatch',
+        'quotaWatch is enabled but the host exposes no credentials service; '
+        + 'the watchdog stays off and routes are never retired for spend.',
+      )
+    }
+  }
+
   // ── HTTP status endpoint for the browser settings section ─────────────
   // The client fetch()es /api/mydsh-auto-model-router/status to render the
   // current routing policy (no localStorage / DOM-transcript dependency).
@@ -159,6 +184,7 @@ export function apply(ctx, input = {}) {
         freeQuota: config.freeQuota,
         contextGuard: config.contextGuard,
         modelsGuard: config.modelsGuard,
+        quotaWatch: quotaWatch?.snapshot() ?? { enabled: false },
         staleLevels: router.staleLevels(),
         rules: config.rules,
         scoring: config.scoring,

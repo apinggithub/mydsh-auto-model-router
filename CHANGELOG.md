@@ -2,6 +2,30 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.3.0 — the quota watchdog reads the bill
+
+A "free" tier is free only until the provider silently switches it to
+pay-as-you-go, and nothing in the request path says so. Measured on a real
+account: a route configured as free had already billed ¥7.79 that cycle, and a
+second model ¥62.56 — the same silent-billing trap the README documents, found
+by hand.
+
+- New `quotaWatch` tier (off by default): two read-only Aliyun RPC calls per
+  poll — `QueryAccountBalance` and `DescribeInstanceBill` — signed with
+  HMAC-SHA1 in-process (no SDK, no dependencies).
+- The bill is folded per model (`InstanceID` carries the model id). Any guarded
+  route whose model shows spend in the current cycle is **retired**: the router
+  drifts to the next candidate and logs the amount once.
+- A balance floor (`balanceFloorCny`, default 10) pauses every non-free route
+  while the account is below it, and resumes when it recovers.
+- Credentials are resolved through `ctx.credentials` by reference
+  (`accessKeyIdRef` / `accessKeySecretRef`), so no secret enters the profile.
+- `/api/mydsh-auto-model-router/status` now reports `quotaWatch`
+  (`balanceCny`, `spendByModel`, `exhausted`, `lastError`).
+- Tests: new `quota-watch.test.mjs` (6 cases: bill fold, signature, retirement,
+  routing consequence, balance floor, failing credential). 96 tests.
+
+
 ## 0.2.6 — context windows are learned, not assumed
 
 Reported on DSH 0.2.1: Auto answered "reached the output token limit" six times

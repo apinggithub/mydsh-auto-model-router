@@ -1,6 +1,6 @@
 {
   "name": "@apinggithub/mydsh-auto-model-router",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "description": "Hybrid model router for DeepSeek Harness: declarative rules, user-configurable cost control (cost-first / quality-first / balanced), optional LLM task classifier, and failure fallback chains.",
   "type": "module",
   "main": "index.mjs",
@@ -20,6 +20,7 @@
     "notify.mjs",
     "auto-adapter.mjs",
     "compat.mjs",
+    "quota-watch.mjs",
     "text-width.mjs",
     "scoring.mjs",
     "client.js",

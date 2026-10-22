@@ -63,6 +63,10 @@ export class ModelRouter {
     /** provider/model → context window learned from the host catalog. */
     this.contextWindows = new Map()
     this.contextWindowsAt = 0
+    /** Routes retired by the quota watchdog (provider/model keys). */
+    this.exhaustedRoutes = new Set()
+    /** True while the account balance sits below the configured floor. */
+    this.balanceLow = false
     /** @type {Map<string, object>} */
     this.states = new Map()
   }
@@ -208,10 +212,78 @@ export class ModelRouter {
       const fresh = this.nearestFreshLevel(level)
       if (fresh !== null) use = fresh
     }
-    const route = this.effectiveRoute(state, sessionId, use)
+    let route = this.effectiveRoute(state, sessionId, use)
+    // A route the quota watchdog retired (a "free" model that started billing,
+    // or any paid route once the balance floor is crossed) must not be picked.
+    if (this.routeBlocked(route)) {
+      for (const id of LEVEL_IDS) {
+        if (id === use) continue
+        const alternative = this.effectiveRoute(state, sessionId, id)
+        if (!this.routeBlocked(alternative)) {
+          use = id
+          route = alternative
+          break
+        }
+      }
+    }
     state.level = use
     state.current = route
     return route
+  }
+
+  // ── quota watchdog state ────────────────────────────────────────────────
+
+  /**
+   * Retire a route: the watchdog keeps this out of routing until it is cleared.
+   * Fired when a route that should be free starts showing billable spend.
+   * @param {object} route - { provider, model }
+   */
+  markRouteExhausted(route) {
+    if (!route?.provider || !route?.model) return
+    this.exhaustedRoutes.add(this.routeKey(route))
+  }
+
+  /** Re-admit a retired route (the next billing cycle resets every month). */
+  clearRouteExhausted(route) {
+    if (!route?.provider || !route?.model) return
+    this.exhaustedRoutes.delete(this.routeKey(route))
+  }
+
+  /** Every route the watchdog retired, as `provider/model` keys. */
+  exhaustedRouteKeys() {
+    return [...this.exhaustedRoutes]
+  }
+
+  /** Whether a route was retired by the watchdog. */
+  isRouteExhausted(route) {
+    if (!route?.provider || !route?.model) return false
+    return this.exhaustedRoutes.has(this.routeKey(route))
+  }
+
+  /**
+   * Account balance crossed the configured floor: paid routes stop being
+   * chosen until the watchdog clears the flag.
+   * @param {boolean} low
+   */
+  setBalanceLow(low) {
+    this.balanceLow = low === true
+  }
+
+  /** Whether paid routes are currently refused. */
+  isBalanceLow() {
+    return this.balanceLow === true
+  }
+
+  /**
+   * Whether this route must not be dispatched to right now.
+   * @param {object} route
+   * @returns {boolean}
+   */
+  routeBlocked(route) {
+    if (!route) return true
+    if (this.isRouteExhausted(route)) return true
+    if (this.balanceLow && !this.isFreeRoute(route)) return true
+    return false
   }
 
   /**
