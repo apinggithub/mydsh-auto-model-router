@@ -2,6 +2,32 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.2.2 — the virtual model tells the host what it can do
+
+Reported on DSH 0.2.1: picking **Auto** in a thinking conversation failed with
+`The content[].thinking in the thinking mode must be passed back to the API`.
+The router had rewritten the request correctly on earlier turns, but when a call
+still reached the virtual `auto` adapter, the host had already assembled the
+conversation for a model that advertises **no context window and no reasoning
+efforts** — so the thinking blocks it must echo were missing from the request.
+
+- `auto.resolveModel()` now borrows the routed model's own capability metadata
+  through `ctx.llm.resolveModelInfo(provider, model)`:
+  - `context.contextWindow` — so the host budgets compaction against the real
+    window instead of an unknown one;
+  - `reasoning.efforts` / `defaultEffort` — so the host treats the route as
+    thinking-capable and keeps echoing `thinking` blocks;
+  - `defaultMaxTokens`, `systemPromptUpdate`, `inputModalities` — same defaults
+    the routed model would have materialised.
+- The default effort follows the configured default level's `reasoningEffort`,
+  so an Auto request asks for the thinking intensity the level declares.
+- Degrades instead of failing: a host without `resolveModelInfo`, a failing
+  lookup, or an empty level table still yields the four DeepSeek efforts and a
+  1M window, and `provider`/`id` always stay `auto`/`auto` so host validation
+  accepts the result.
+- Tests: new `adapter-metadata.test.mjs` (8 cases) pins the metadata contract,
+  including the "routed model rejects the level's effort" fallback. 71 tests.
+
 ## 0.2.1 — host-compatibility hardening
 
 The plugin now assumes the host surface will move. It mounts and degrades

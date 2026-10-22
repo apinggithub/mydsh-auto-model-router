@@ -26,6 +26,25 @@ import { routesEqual } from './router.mjs'
 export const AUTO_PROVIDER = 'auto'
 export const AUTO_MODEL = 'auto'
 
+/**
+ * Reasoning efforts advertised when the routed model's own metadata cannot be
+ * read: the four values the DeepSeek catalog accepts.
+ */
+const FALLBACK_EFFORTS = Object.freeze([
+  { id: 'off', name: 'Off' },
+  { id: 'low', name: 'Low' },
+  { id: 'high', name: 'High' },
+  { id: 'max', name: 'Max' },
+])
+
+/**
+ * Context window advertised when the routed model does not report one.
+ * DeepSeek's 0.2.x catalog tops out at 1M tokens; assuming the largest window
+ * merely keeps compaction from firing early — the routed provider still
+ * rejects an oversized request and the fallback chain takes over.
+ */
+const FALLBACK_CONTEXT_WINDOW = 1_000_000
+
 /** Provider route metadata shown in the selector. */
 export function autoProviderInfo(provider) {
   return { id: provider, name: 'Auto Router' }
@@ -39,6 +58,53 @@ export function autoListModels() {
 /** Exact-model metadata for the advertised model. */
 export function autoResolveModel(provider, model) {
   return { provider, id: model, name: model }
+}
+
+/**
+ * The route the virtual model should borrow its capabilities from.
+ *
+ * The host asks `resolveModel("auto", "auto")` before it assembles a request,
+ * long before any session decision exists, so this picks the configured
+ * default level (falling back to the first configured one).
+ *
+ * @param {object | undefined} router
+ * @returns {{ provider: string, model: string, reasoningEffort?: string } | undefined}
+ */
+function representativeRoute(router) {
+  try {
+    const level = router?.config?.costControl?.defaultLevel
+    const route = (level === undefined ? undefined : router?.routeForLevel?.(level))
+      ?? router?.firstConfiguredRoute?.()
+    if (route === undefined || route === null) return undefined
+    if (typeof route.provider !== 'string' || route.provider === '') return undefined
+    if (typeof route.model !== 'string' || route.model === '') return undefined
+    return route
+  } catch {
+    return undefined
+  }
+}
+
+/** Read the routed model's own metadata, tolerating a host without it. */
+async function underlyingInfo(llm, route) {
+  if (route === undefined || typeof llm?.resolveModelInfo !== 'function') return undefined
+  try {
+    return await llm.resolveModelInfo(route.provider, route.model)
+  } catch {
+    return undefined
+  }
+}
+
+/** Copy the routed model's efforts, or the DeepSeek defaults. */
+function reasoningEfforts(info) {
+  const efforts = info?.reasoning?.efforts
+  if (Array.isArray(efforts) && efforts.length > 0) {
+    return efforts.map((effort) => ({
+      id: effort.id,
+      name: effort.name,
+      ...effort.description === undefined ? {} : { description: effort.description },
+    }))
+  }
+  return FALLBACK_EFFORTS.map((effort) => ({ ...effort }))
 }
 
 /**
@@ -64,7 +130,43 @@ export function createAutoAdapter(resolve = {}) {
       return undefined
     },
     listModels: async () => autoListModels(),
-    resolveModel: async (provider, model) => autoResolveModel(provider, model),
+    /**
+     * Capability metadata for the virtual model.
+     *
+     * The host validates a request against the exact model *before* any
+     * provider I/O and assembles the conversation with what it learns here:
+     * without a context window it cannot budget compaction, and without
+     * reasoning efforts it treats the route as non-thinking and stops echoing
+     * the `thinking` blocks a thinking-mode provider requires on every turn.
+     * Borrowing the routed model's own metadata keeps the virtual provider
+     * indistinguishable from the model it forwards to.
+     */
+    async resolveModel(provider, model) {
+      const route = representativeRoute(readRouter())
+      const info = await underlyingInfo(readLlm(), route)
+      const efforts = reasoningEfforts(info)
+      const requested = route?.reasoningEffort
+      const wanted = efforts.some((effort) => effort.id === requested)
+        ? requested
+        : info?.reasoning?.defaultEffort
+      const defaultEffort = efforts.some((effort) => effort.id === wanted) ? wanted : efforts[0]?.id
+      const contextWindow = Number.isInteger(info?.context?.contextWindow) && info.context.contextWindow > 0
+        ? info.context.contextWindow
+        : FALLBACK_CONTEXT_WINDOW
+      return {
+        provider,
+        id: model,
+        name: 'Auto',
+        context: { contextWindow },
+        systemPromptUpdate: info?.systemPromptUpdate ?? 'in-history',
+        ...info?.defaultMaxTokens === undefined ? {} : { defaultMaxTokens: info.defaultMaxTokens },
+        ...info?.inputModalities === undefined ? {} : { inputModalities: info.inputModalities },
+        reasoning: {
+          efforts,
+          ...defaultEffort === undefined ? {} : { defaultEffort },
+        },
+      }
+    },
     /**
      * The 0.2.x adapter contract: the runtime validates a request against the
      * model's capabilities and binds it to one concrete adapter generation
