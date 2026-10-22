@@ -389,13 +389,38 @@ contextGuard: { enabled: true, headroom: 0.85 }
 
 ```powershell
 # 1. 从 npm 装（推荐；peer 范围已放宽为宿主自适应，不需要 allow-version 豁免）
-dsh plugin --profile desktop add '@apinggithub/mydsh-auto-model-router@0.3.1'
+dsh plugin --profile desktop add '@apinggithub/mydsh-auto-model-router@0.3.3'
 
 # 2. 可选：按档位拆账
 dsh plugin --profile desktop add '@apinggithub/dsh-tier-cost@0.1.0'
 
-# 3. 重启 DSH（bundle 只在启动时组合；配置改动用热加载即可）
+# 3. 改完 cordis.patch.yml 后先校验（见下），再重启
+node scripts/check-patch.mjs --profile desktop
+
+# 4. 重启 DSH（bundle 只在启动时组合；配置改动用热加载即可）
 ```
+
+### 改配置前必读：先校验，再重启
+
+`cordis.patch.yml` 里一个少的换行就能让宿主**启动失败**：
+
+```
+DesktopHostFatalError: failed to parse overlay … YAMLException: bad indentation (454:44)
+```
+
+更麻烦的是崩溃对话框里有 **"Disable third-party plugins"** 按钮——点它会把所有第三方
+bundle 从 profile 里摘掉，插件（含 Auto 入口）随之消失，需要手工恢复。
+
+所以每次改完都跑一次（会用宿主自己的解析器校验，并清理临时 profile）：
+
+```powershell
+node scripts/check-patch.mjs --profile desktop
+# PASS  profile "desktop" composes (194 top-level entries)
+# FAIL  … 会打印宿主的原始错误
+```
+
+参数：`--home <DSH_HOME>`、`--profile <name>`、`--file <patch>`（只做静态检查）、`--keep`（保留临时 profile 便于排查）。
+
 
 也可以从源码装：`git clone …` 后 `dsh plugin --profile desktop add ./mydsh-auto-model-router`。
 

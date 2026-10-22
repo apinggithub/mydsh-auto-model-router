@@ -26,7 +26,12 @@ dsh plugin --profile desktop add '@apinggithub/mydsh-auto-model-router@0.3.1'
 # 2. append the levels block to the profile patch
 notepad $env:DSH_HOME\profiles\desktop\cordis.patch.yml
 
-# 3. restart DSH once (bundles compose at boot; later edits hot-reload)
+# 3. ALWAYS validate it before restarting — a YAML typo here stops DSH from
+#    starting, and the crash dialog's "disable third-party plugins" button then
+#    strips every bundle (the router disappears from the model picker)
+node scripts/check-patch.mjs --profile desktop
+
+# 4. restart DSH once (bundles compose at boot; later edits hot-reload)
 ```
 
 Check what the plugin sees at any time:

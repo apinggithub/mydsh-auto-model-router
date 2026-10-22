@@ -1,6 +1,6 @@
 {
   "name": "@apinggithub/mydsh-auto-model-router",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Hybrid model router for DeepSeek Harness: declarative rules, user-configurable cost control (cost-first / quality-first / balanced), optional LLM task classifier, and failure fallback chains.",
   "type": "module",
   "main": "index.mjs",
@@ -26,6 +26,7 @@
     "client.js",
     "cordis.patch.yml",
     "examples",
+    "scripts",
     "README.md",
     "README.zh.md"
   ],
@@ -41,6 +42,7 @@
   "scripts": {
     "test": "node --test *.test.mjs",
     "build:client": "node build-client.mjs",
+    "check:patch": "node scripts/check-patch.mjs",
     "publish:all": "npm publish --access public && cd tier-cost && npm publish --access public"
   },
   "peerDependencies": {

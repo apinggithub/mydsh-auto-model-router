@@ -2,6 +2,26 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.3.3 — check the patch before the host has to
+
+A missing newline in `cordis.patch.yml` (a `- { … }` entry glued to the next
+key) made DSH die at startup with `failed to parse overlay … YAMLException`, and
+the desktop dialog then offered "disable third-party plugins", which strips every
+bundle — the router disappeared from the model picker until the bundles were put
+back by hand.
+
+- New `scripts/check-patch.mjs` (`npm run check:patch`):
+  - static pass: TAB characters, a UTF-8 BOM, an empty file, and a flow mapping
+    glued to the next key;
+  - authoritative pass: copies the profile into a throw-away sibling profile and
+    runs `dsh --dump-config`, so the real loader parses the real overlay with the
+    real merge rules. Scratch profile is removed afterwards (junction first).
+  - `--file` runs the static checks alone; `--keep` leaves the scratch profile
+    for inspection; `--home` / `--profile` pick the target.
+- README (zh + en) and `examples/README.md` now tell you to run it after editing
+  the patch and before restarting DSH.
+
+
 ## 0.3.2 — stop asking on every long input, and ship copy-paste examples
 
 Crossing the heuristic ceiling opened the "pin a fixed level / enable
