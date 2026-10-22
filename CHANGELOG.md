@@ -2,6 +2,29 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.3.2 — stop asking on every long input, and ship copy-paste examples
+
+Crossing the heuristic ceiling opened the "pin a fixed level / enable
+fully-auto" dialog every single time, which is the wrong default for a router
+whose whole point is not being asked.
+
+- `heuristic.askAboveLock` (default `true`) — set it to `false` and an
+  over-ceiling input simply rides the last threshold's level.
+- `lockCeiling()` now treats an unbounded **top** threshold (`maxChars: null`)
+  as "no ceiling", so a catch-all rung removes the dialog without any extra
+  config. Previously it looked for the highest *finite* threshold, so a
+  catch-all still asked.
+- New `examples/` directory, shipped in the npm package:
+  - `levels-free-first.yml` — free GLM ladder + DeepSeek API fallback;
+  - `levels-deepseek-account.yml` — known-good baseline on the account login;
+  - `quota-watch.yml` — the watchdog block with the RAM least-privilege notes;
+  - `add-credentials.ps1` — store/update/remove one credential ref in
+    `$DSH_HOME/.credentials.yaml`, reading the secret as a SecureString and
+    tightening the ACL. Verified for create, update, insert and remove.
+- README (zh + en) points at `examples/` and documents `askAboveLock`.
+- Tests: new `heuristic.test.mjs` (4 cases). 102 tests.
+
+
 ## 0.3.1 — a floor for the DeepSeek platform balance
 
 The watchdog read the Aliyun bill, which never covers `deepseek-official`: that

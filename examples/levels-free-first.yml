@@ -1,0 +1,57 @@
+# Free-first ladder: L0–L2 on Zhipu flash (genuinely free), L3 on the DeepSeek
+# platform API. Requires the providers `zhipu` and `deepseek-official` to exist
+# in that machine's cordis.patch.yml (llm-pi-ai providers:) and their keys in the
+# credential store:
+#   ZHIPU_API_KEY       → https://open.bigmodel.cn  (glm flash tiers are free)
+#   DEEPSEEK_API_KEY    → https://platform.deepseek.com
+#
+# reasoningEffort: null is REQUIRED for the glm flash models: they have no
+# thinking mode, and any effort value makes the host reject the request with
+# UNSUPPORTED_REASONING_EFFORT.
+- id: mydsh-auto-model-router-runtime
+  name: '@apinggithub/mydsh-auto-model-router'
+  config:
+    levels:
+      L0:
+        provider: zhipu
+        model: glm-4.7-flash
+        reasoningEffort: null
+        freeQuota: true
+      L1:
+        provider: zhipu
+        model: glm-4.5-flash
+        reasoningEffort: null
+        freeQuota: true
+      L2:
+        provider: zhipu
+        model: glm-4-flash
+        reasoningEffort: null
+      L3:
+        provider: deepseek-official
+        model: deepseek-flash
+        reasoningEffort: max
+    # Long inputs ride the ladder silently instead of opening a dialog on every
+    # crossing of the heuristic ceiling.
+    heuristic:
+      windowSize: 3
+      counting: cjk2
+      askAboveLock: false
+      thresholds:
+        - { maxChars: 10, level: L0 }
+        - { maxChars: 100, level: L1 }
+        - { maxChars: 1000, level: L2 }
+        - { maxChars: null, level: L2 }
+    freeQuota:
+      enabled: true
+      demoteOnError: true
+      notify: true
+      routes: []
+    costControl:
+      enabled: true
+      mode: cost-first
+      defaultLevel: L1
+    fallbackChain:
+      - provider: deepseek-official
+        model: deepseek-flash
+    llmClassifier:
+      enabled: false

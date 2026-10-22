@@ -1,0 +1,39 @@
+# Everything on the logged-in DeepSeek account (OAuth), no API key needed.
+# Useful as a known-good baseline: if this routes, the plugin itself is fine and
+# any failure is in the provider/credential of the other example.
+#
+# `deepseek-account` comes from the host's own account login; the model must be
+# listed in that account's catalog (deepseek-flash on 0.2.x/0.3.x hosts).
+- id: mydsh-auto-model-router-runtime
+  name: '@apinggithub/mydsh-auto-model-router'
+  config:
+    levels:
+      L0:
+        provider: deepseek-account
+        model: deepseek-flash
+        reasoningEffort: off
+      L1:
+        provider: deepseek-account
+        model: deepseek-flash
+        reasoningEffort: low
+      L2:
+        provider: deepseek-account
+        model: deepseek-flash
+        reasoningEffort: high
+      L3:
+        provider: deepseek-account
+        model: deepseek-flash
+        reasoningEffort: max
+    heuristic:
+      windowSize: 3
+      counting: cjk2
+      askAboveLock: false
+      thresholds:
+        - { maxChars: 10, level: L0 }
+        - { maxChars: 100, level: L1 }
+        - { maxChars: 1000, level: L2 }
+        - { maxChars: null, level: L3 }
+    costControl:
+      enabled: true
+      mode: balanced
+      defaultLevel: L1

@@ -58,16 +58,14 @@ export function levelForWidth(thresholds, width) {
 }
 
 /**
- * The top finite threshold's maxChars, or null when every threshold is
- * unbounded. Used by the router to detect "above the heuristic lock".
+ * The heuristic ceiling: the top threshold's `maxChars`, or null when that
+ * threshold is unbounded (`maxChars: null`) — an open-ended ladder accepts every
+ * width, so the router never has to ask what to do.
  * @param {object[]} thresholds
  * @returns {number | null}
  */
 export function lockCeiling(thresholds) {
-  for (let i = thresholds.length - 1; i >= 0; i--) {
-    if (thresholds[i]?.maxChars !== null && thresholds[i]?.maxChars !== undefined) {
-      return thresholds[i].maxChars
-    }
-  }
-  return null
+  const last = thresholds[thresholds.length - 1]
+  if (last === undefined) return null
+  return last.maxChars === null || last.maxChars === undefined ? null : last.maxChars
 }

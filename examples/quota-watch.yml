@@ -1,0 +1,42 @@
+# Cloud-bill watchdog. Read-only: two GETs per poll against the Aliyun BSS
+# OpenAPI, signed in-process. It exists because an exhausted free tier often
+# keeps answering instead of returning an error — the router cannot see that,
+# but the bill can.
+#
+# RAM setup (do this once, in the Aliyun console):
+#   1. RAM → Users → create a user with PROGRAMMATIC ACCESS ONLY.
+#   2. Attach the system policy `AliyunBSSReadOnlyAccess`, or a custom policy
+#      that allows exactly:
+#        bss:QueryAccountBalance
+#        bss:DescribeInstanceBill
+#        bss:QueryResourcePackageInstances
+#   3. Create an AccessKey for that user. Never use the root account's key and
+#      never give it write scope.
+#   4. Store the pair in the DSH credential store (examples/add-credentials.ps1):
+#        ALIBABA_CLOUD_ACCESS_KEY_ID
+#        ALIBABA_CLOUD_ACCESS_KEY_SECRET
+#
+# Secrets never appear in this file — only the reference names.
+- id: mydsh-auto-model-router-runtime
+  name: '@apinggithub/mydsh-auto-model-router'
+  config:
+    quotaWatch:
+      enabled: true
+      # Which configured provider the bill describes; only its routes are retired.
+      provider: bailian-dell-vostro
+      # 百炼's product code on the Aliyun bill.
+      productCode: sfm
+      # 30 minutes. Minimum 60000; billing data itself lags (T+1), so a faster
+      # poll buys nothing.
+      pollMs: 1800000
+      # Below this Aliyun balance every paid route pauses. 0 disables the floor.
+      balanceFloorCny: 10
+      # Any spend on a guarded model retires its route for the session.
+      demoteOnSpend: true
+      # DeepSeek bills its own platform account, which no cloud bill covers:
+      # give that provider a separate floor. 0 disables it.
+      deepseekBalanceFloor: 10
+      deepseekApiKeyRef: DEEPSEEK_API_KEY
+      accessKeyIdRef: ALIBABA_CLOUD_ACCESS_KEY_ID
+      accessKeySecretRef: ALIBABA_CLOUD_ACCESS_KEY_SECRET
+      timeoutMs: 20000

@@ -134,7 +134,9 @@ export class ModelRouter {
     // MODE A heuristic.
     const width = windowWidth(state.inputs, this.config.heuristic.windowSize, this.config.heuristic.counting)
     const ceiling = lockCeiling(this.config.heuristic.thresholds)
-    if (ceiling !== null && width > ceiling) {
+    // `askAboveLock: false` keeps the ladder silent: the last threshold's level
+    // simply takes the long input instead of interrupting with a question.
+    if (ceiling !== null && width > ceiling && this.config.heuristic.askAboveLock !== false) {
       return { needsAsk: 'above-lock', width }
     }
     const level = levelForWidth(this.config.heuristic.thresholds, width)

@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.3.1'
+export const PLUGIN_VERSION = '0.3.2'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -48,6 +48,8 @@ const DEFAULT_CONFIG = Object.freeze({
   heuristic: {
     windowSize: 3,
     counting: 'cjk2',
+    // Ask before leaving the heuristic ladder; set false to route silently.
+    askAboveLock: true,
     thresholds: [
       { maxChars: 10, level: 'L0' },
       { maxChars: 100, level: 'L1' },
@@ -259,6 +261,9 @@ function normalizeHeuristic(heuristic) {
     ...(heuristic ?? {}),
   }
   h.windowSize = clampInt(h.windowSize, 1, 20, DEFAULT_CONFIG.heuristic.windowSize)
+  // `askAboveLock: false` removes the "this input crossed the ceiling" dialog:
+  // anything above the top threshold just rides the last threshold's level.
+  h.askAboveLock = h.askAboveLock !== false
   if (!COUNTING_MODES.includes(h.counting)) {
     throw new Error(
       `mydsh-auto-model-router: heuristic.counting must be one of ${COUNTING_MODES.join(', ')}, got "${h.counting}"`,
