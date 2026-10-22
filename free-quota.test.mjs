@@ -15,11 +15,15 @@ const DS = { provider: 'deepseek-account', model: 'deepseek-flash' }
 /**
  * Routes carry their normalized reasoning effort (and, for free routes, the
  * declaration flag / level ceiling), so compare the identity fields only.
+ *
+ * Pass `null` as the third argument to assert that the route states **no**
+ * effort at all — the shape a free route has when the user did not ask for one.
  */
 function assertRoute(route, expected, effort) {
   assert.equal(route.provider, expected.provider)
   assert.equal(route.model, expected.model)
-  if (effort !== undefined) assert.equal(route.reasoningEffort, effort)
+  if (effort === null) assert.equal('reasoningEffort' in route, false)
+  else if (effort !== undefined) assert.equal(route.reasoningEffort, effort)
 }
 
 /** Levels with the two cheap tiers free, the expensive tiers paid. */
@@ -104,8 +108,8 @@ test('freeQuota.routes defaults maxLevel to L1 and rejects unknown levels', () =
 
 test('a free route declared for L0鈥揕1 serves those levels only', async () => {
   const router = new ModelRouter(freeRouteConfig())
-  assertRoute(await router.decideOnInput('s1', { inputText: 'hi' }), GLM, 'off')
-  assertRoute(await router.decideOnInput('s1', { inputText: 'x'.repeat(50) }), GLM, 'off')
+  assertRoute(await router.decideOnInput('s1', { inputText: 'hi' }), GLM, null)
+  assertRoute(await router.decideOnInput('s1', { inputText: 'x'.repeat(50) }), GLM, null)
   assertRoute(await router.decideOnInput('s1', { inputText: 'x'.repeat(500) }), DS, 'high')
   assertRoute(await router.decideOnInput('s1', { inputText: 'x'.repeat(5000) }), DS, 'max')
 })
@@ -159,7 +163,7 @@ test('demotion is session-scoped and does not leak', async () => {
 
 test('a demoted freeQuota.routes entry stops being preferred', async () => {
   const router = new ModelRouter(freeRouteConfig())
-  assertRoute(await router.decideOnInput('s1', { inputText: 'hi' }), GLM, 'off')
+  assertRoute(await router.decideOnInput('s1', { inputText: 'hi' }), GLM, null)
   router.markFreeExhausted('s1', GLM)
   // The level's own (paid) route takes over, and no demotion is pending
   // because this level was never free itself.

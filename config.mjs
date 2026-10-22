@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.2.4'
+export const PLUGIN_VERSION = '0.2.5'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -213,12 +213,12 @@ function normalizeFreeQuota(freeQuota) {
         `mydsh-auto-model-router: ${where}.maxLevel must be one of ${LEVEL_IDS.join(', ')}, got "${maxLevel}"`,
       )
     }
-    // Ride along with an explicit effort, exactly like a level route, so the
-    // dispatched request never falls back to the adapter's own default
-    // thinking level by accident.
+    // Free routes state an effort only when the user asks for one: the host
+    // rejects an effort on a model without reasoning metadata, and free tiers
+    // are exactly where non-thinking models (Qwen/GLM flash) live.
     return {
       ...normalized,
-      reasoningEffort: normalized.reasoningEffort ?? 'off',
+      ...normalized.reasoningEffort === undefined ? {} : { reasoningEffort: normalized.reasoningEffort },
       maxLevel,
     }
   })

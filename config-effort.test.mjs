@@ -37,3 +37,20 @@ test('free-quota level flags survive normalisation', () => {
   assert.equal('reasoningEffort' in config.levels.L0, false)
   assert.equal(config.levels.L1.freeQuota, undefined)
 })
+
+test('a free-quota route states no effort unless asked to', () => {
+  // Regression: free routes used to default to 'off', which the host rejects
+  // for Qwen/GLM flash models ("does not support reasoning effort off").
+  const config = resolveConfig({
+    levels: { L1: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' } },
+    freeQuota: {
+      routes: [
+        { provider: 'bailian-dell-vostro', model: 'qwen3.8-flash', maxLevel: 'L2' },
+        { provider: 'zhipu', model: 'glm-4-flash', reasoningEffort: 'low' },
+      ],
+    },
+  })
+  assert.equal('reasoningEffort' in config.freeQuota.routes[0], false)
+  assert.equal(config.freeQuota.routes[0].maxLevel, 'L2')
+  assert.equal(config.freeQuota.routes[1].reasoningEffort, 'low')
+})

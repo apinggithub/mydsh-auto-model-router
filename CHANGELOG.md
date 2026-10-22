@@ -2,6 +2,22 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.2.5 — free-quota routes state no effort
+
+Reported on DSH 0.2.1: Auto failed with
+`provider "bailian-dell-vostro" model "qwen3.8-flash" does not support reasoning effort "off"`.
+
+`freeQuota.routes` entries were normalised to `reasoningEffort: 'off'`, the same
+default levels used to get. Free tiers are exactly where non-thinking models
+live (Qwen/GLM flash), so the default made every free route unusable.
+
+- A free route now carries an effort only when the config states one; otherwise
+  the field is omitted and the provider default applies.
+- Levels keep the `'off'` default for backwards compatibility — set
+  `reasoningEffort: null` on a level whose model has no thinking mode.
+- Tests: one new case in `config-effort.test.mjs`, free-route assertions in
+  `free-quota.test.mjs` updated to expect no effort. 82 tests.
+
 ## 0.2.4 — forward only an effort the target supports
 
 Reported on DSH 0.2.1: Auto with reasoning effort `low` failed with
