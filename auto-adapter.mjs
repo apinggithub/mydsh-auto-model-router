@@ -185,7 +185,11 @@ export function createAutoAdapter(resolve = {}) {
      * indistinguishable from the model it forwards to.
      */
     async resolveModel(provider, model) {
-      const route = representativeRoute(readRouter())
+      const router = readRouter()
+      // Teach the router the real windows first: the guard and this metadata
+      // must agree on what the candidates can hold.
+      await router?.refreshContextWindows?.()
+      const route = representativeRoute(router)
       const info = await underlyingInfo(readLlm(), route)
       const efforts = reasoningEfforts(info)
       const requested = route?.reasoningEffort
@@ -193,9 +197,16 @@ export function createAutoAdapter(resolve = {}) {
         ? requested
         : info?.reasoning?.defaultEffort
       const defaultEffort = efforts.some((effort) => effort.id === wanted) ? wanted : efforts[0]?.id
-      const contextWindow = Number.isInteger(info?.context?.contextWindow) && info.context.contextWindow > 0
-        ? info.context.contextWindow
-        : FALLBACK_CONTEXT_WINDOW
+      // Report the smallest window any candidate can hold: the host budgets
+      // compaction from this value, so a conversation that fits the default
+      // level but not a free route would otherwise be assembled for a model
+      // that cannot take it.
+      const own = info?.context?.contextWindow
+      const pool = [
+        ...(typeof router?.candidateContextWindows === 'function' ? router.candidateContextWindows() : []),
+        ...(Number.isInteger(own) && own > 0 ? [own] : []),
+      ].filter((value) => Number.isInteger(value) && value > 0)
+      const contextWindow = pool.length > 0 ? Math.min(...pool) : FALLBACK_CONTEXT_WINDOW
       return {
         provider,
         id: model,

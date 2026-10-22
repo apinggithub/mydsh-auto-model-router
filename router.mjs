@@ -60,6 +60,9 @@ export class ModelRouter {
     // read (or is empty): the freshness guard fails OPEN for that provider.
     this.catalogs = new Map()
     this.catalogCheckedAt = 0
+    /** provider/model → context window learned from the host catalog. */
+    this.contextWindows = new Map()
+    this.contextWindowsAt = 0
     /** @type {Map<string, object>} */
     this.states = new Map()
   }
@@ -83,6 +86,8 @@ export class ModelRouter {
    */
   async decideOnInput(sessionId, { inputText = '', prevInputText = '', lastReplyText = '' } = {}) {
     const state = this.stateFor(sessionId)
+    // Lazy catalog read: the guard can only honour windows it knows about.
+    await this.refreshContextWindows()
 
     // Same input as the last decision (agent step replay, tool-call loop):
     // reuse the existing decision — NO re-judging, NO re-classification.
@@ -282,6 +287,91 @@ export class ModelRouter {
   }
 
   /**
+   * Learn every candidate route's context window from the host catalog.
+   *
+   * The context guard can only skip a route whose window it knows, so an
+   * undeclared window fails open — and a long session then overflows the model.
+   * The provider truncates generation to the few tokens that still fit, which
+   * surfaces to the user as "reached the output token limit" on every retry.
+   *
+   * Runs at most once a minute; a provider that cannot answer for an id leaves
+   * that route unknown (fail open) and is retried on the next pass.
+   */
+  async refreshContextWindows() {
+    if (typeof this.llm?.resolveModelInfo !== 'function') return
+    const now = Date.now()
+    if (now - this.contextWindowsAt < 60_000) return
+    this.contextWindowsAt = now
+    const routes = []
+    for (const id of LEVEL_IDS) {
+      const route = this.levels[id]
+      if (route) routes.push(route)
+    }
+    for (const route of this.config.freeQuota?.routes ?? []) {
+      if (route) routes.push(route)
+    }
+    for (const route of routes) {
+      const key = this.routeKey(route)
+      if (this.contextWindows.has(key)) continue
+      try {
+        const info = await this.llm.resolveModelInfo(route.provider, route.model)
+        const window = info?.context?.contextWindow
+        if (Number.isSafeInteger(window) && window > 0) this.contextWindows.set(key, window)
+      } catch {
+        // Provider does not answer for this id: leave the window unknown.
+      }
+    }
+  }
+
+  /**
+   * The window for one route: the value declared in config wins, then whatever
+   * the catalog taught us.
+   * @param {object | null | undefined} route
+   * @returns {number | undefined}
+   */
+  contextWindowOf(route) {
+    if (!route) return undefined
+    if (Number.isFinite(route.contextWindow) && route.contextWindow > 0) return route.contextWindow
+    return this.contextWindows.get(this.routeKey(route))
+  }
+
+  /**
+   * Whether a route can hold `size` context tokens. An unknown window is
+   * assumed to fit, so a host without catalog access keeps working.
+   * @param {object} route
+   * @param {number} size
+   * @returns {boolean}
+   */
+  fitsContext(route, size) {
+    const window = this.contextWindowOf(route)
+    if (!Number.isFinite(window) || window <= 0) return true
+    return size <= window * this.contextHeadroom()
+  }
+
+  /**
+   * Windows of every route a request for `level` can actually be dispatched to:
+   * the level itself plus the free routes covering it. The virtual `auto` model
+   * reports the smallest of them so the host never assembles a conversation
+   * that some candidate cannot hold.
+   * @param {string} [level]
+   * @returns {number[]}
+   */
+  candidateContextWindows(level = this.config.costControl?.defaultLevel ?? 'L1') {
+    const out = []
+    const own = this.contextWindowOf(this.levels?.[level])
+    if (Number.isFinite(own)) out.push(own)
+    const index = levelIndex(level)
+    if (index !== -1 && typeof this.freeQuotaRoutes === 'function') {
+      for (const entry of this.freeQuotaRoutes()) {
+        if (levelIndex(entry.maxLevel) < index) continue
+        const window = this.contextWindowOf(entry)
+        if (Number.isFinite(window)) out.push(window)
+      }
+    }
+    return out
+  }
+
+  /**
    * The conversation size the guard compares against: the input side of the
    * last completed request in this session (uncached + cache-read + cache-write).
    * @param {string} sessionId
@@ -321,13 +411,10 @@ export class ModelRouter {
     if (size <= 0) return level
     const index = levelIndex(level)
     if (index === -1) return level
-    const headroom = this.contextHeadroom()
     const fits = (id) => {
       const route = this.levels[id]
       if (!route) return false
-      const window = route.contextWindow
-      if (!Number.isFinite(window) || window <= 0) return true
-      return size <= window * headroom
+      return this.fitsContext(route, size)
     }
     if (fits(level)) return level
     const ladder = []
@@ -513,10 +600,15 @@ export class ModelRouter {
     if (!this.freeQuotaEnabled()) return null
     const index = levelIndex(level)
     if (index === -1) return null
+    // A free route that cannot hold the conversation is not a candidate: the
+    // provider would truncate the answer to whatever fits, which reads as
+    // "reached the output token limit".
+    const size = this.stateFor(sessionId).contextTokens ?? 0
     for (const entry of this.freeQuotaRoutes()) {
       if (levelIndex(entry.maxLevel) < index) continue
       if (this.isExhausted(sessionId, entry)) continue
       if (this.routeStale(entry)) continue
+      if (size > 0 && !this.fitsContext(entry, size)) continue
       return entry
     }
     return null

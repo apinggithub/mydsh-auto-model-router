@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.2.5'
+export const PLUGIN_VERSION = '0.2.6'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])

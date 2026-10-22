@@ -2,6 +2,33 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.2.6 — context windows are learned, not assumed
+
+Reported on DSH 0.2.1: Auto answered "reached the output token limit" six times
+in a row. The usage told the real story — `outputTokens: 1` with ~280k tokens of
+context on a 262k-window model. The provider had truncated generation to the one
+token that still fit.
+
+Three defects combined:
+
+1. the context guard only knew windows a route **declared**, and the free tiers
+   declared none, so it failed open;
+2. the free-route preference never checked context at all, so a 280k
+   conversation was handed to a 131k–262k free model;
+3. the virtual `auto` model reported the default level's window, not the
+   smallest window a candidate route could actually need.
+
+- `refreshContextWindows()` reads every level's and free route's real
+  `contextWindow` through `ctx.llm.resolveModelInfo()`, once a minute, and
+  leaves a route unknown (fail open) when its provider will not answer for it.
+- `fitsContext()` now backs both the level ladder and the free-route
+  preference; a free route that cannot hold the conversation is skipped instead
+  of preferred.
+- `resolveModel('auto','auto')` reports the **smallest** window across the
+  candidates for the default level, so the host budgets compaction against what
+  a route can really take.
+- Tests: new `context-windows.test.mjs` (8 cases). 90 tests.
+
 ## 0.2.5 — free-quota routes state no effort
 
 Reported on DSH 0.2.1: Auto failed with
