@@ -2,6 +2,23 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.2.4 — forward only an effort the target supports
+
+Reported on DSH 0.2.1: Auto with reasoning effort `low` failed with
+`provider "zhipu" model "glm-4.7-flash" does not support reasoning effort "low"`.
+
+The host's model-selection listener (`dsh-agent`) re-applies the session's own
+`reasoningEffort` after every `agent/request` waterfall, so a request for
+`auto/auto` reached the virtual adapter still carrying the UI choice, and the
+adapter forwarded it unchanged to a model with no thinking mode.
+
+- `stream()` now resolves the routed model's `reasoning.efforts` and forwards an
+  effort only when the target advertises it: the level's effort first, then the
+  caller's, then the model default, otherwise the field is dropped.
+- A host that cannot report model metadata drops the effort instead of guessing.
+- The forwarded options are a copy; the runtime's object is never mutated.
+- Tests: new `forward-effort.test.mjs` (6 cases). 81 tests.
+
 ## 0.2.3 — routes without a thinking mode
 
 The point of the plugin is free-quota-first routing, but every level

@@ -108,6 +108,49 @@ function reasoningEfforts(info) {
 }
 
 /**
+ * Pick the reasoning effort to send to the routed model.
+ *
+ * The session's model selection keeps its own `reasoningEffort` and the host's
+ * selection listener re-applies it after every waterfall rewrite, so the value
+ * that reaches this adapter belongs to the *virtual* model, not to the model it
+ * forwards to. Passing it through unchanged sends a thinking parameter to a
+ * model with no thinking mode, which the provider rejects outright
+ * (`does not support reasoning effort "low"`).
+ *
+ * @param {object} llm - ctx.llm
+ * @param {object} route - the routed provider/model
+ * @param {unknown} requested - effort the caller asked for (usually the UI choice)
+ * @returns {Promise<string | undefined>} an effort the target advertises, or undefined
+ */
+async function supportedEffort(llm, route, requested) {
+  const info = await underlyingInfo(llm, route)
+  const efforts = Array.isArray(info?.reasoning?.efforts) ? info.reasoning.efforts : []
+  if (efforts.length === 0) return undefined
+  const ids = new Set(efforts.map((effort) => effort.id))
+  if (typeof route.reasoningEffort === 'string' && ids.has(route.reasoningEffort)) return route.reasoningEffort
+  if (typeof requested === 'string' && ids.has(requested)) return requested
+  const fallback = info?.reasoning?.defaultEffort
+  return typeof fallback === 'string' && ids.has(fallback) ? fallback : undefined
+}
+
+/**
+ * Request options for the routed model: same call, different provider/model,
+ * and only the reasoning effort that model actually supports.
+ *
+ * @param {object} llm - ctx.llm
+ * @param {object} route - the routed provider/model
+ * @param {object} options - options the runtime handed to `stream()`
+ * @returns {Promise<object>}
+ */
+async function forwardOptions(llm, route, options) {
+  const forwarded = { ...options, provider: route.provider, model: route.model }
+  delete forwarded.reasoningEffort
+  const effort = await supportedEffort(llm, route, options?.reasoningEffort)
+  if (effort !== undefined) forwarded.reasoningEffort = effort
+  return forwarded
+}
+
+/**
  * Build the virtual adapter for one plugin mount.
  *
  * Both dependencies are read lazily through getters so the adapter always sees
@@ -194,13 +237,9 @@ export function createAutoAdapter(resolve = {}) {
           // runtime; the adapter contract requires we stream chunks back.
           const llm = readLlm()
           if (typeof llm?.stream === 'function') {
+            const forwarded = await forwardOptions(llm, route, options)
             // ctx.llm.stream returns the AsyncIterable directly (not { stream }).
-            const stream = llm.stream({
-              ...options,
-              provider: route.provider,
-              model: route.model,
-              ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
-            })
+            const stream = llm.stream(forwarded)
             for await (const chunk of stream) yield chunk
             return
           }

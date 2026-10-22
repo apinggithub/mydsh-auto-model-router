@@ -276,7 +276,9 @@ test('the virtual auto adapter satisfies the 0.2.x prepareCall contract', async 
   assert.equal(typeof call.stream, 'function')
 
   // The stream it hands back forwards to the router's current decision, so a
-  // call the router did not intercept still reaches a real model.
+  // call the router did not intercept still reaches a real model. This mock
+  // host cannot report the routed model's efforts, so the level's `off` is
+  // dropped rather than sent to a model that may have no thinking mode.
   for await (const chunk of call.stream({ sessionId: 's1' })) seen.push(chunk)
-  assert.deepEqual(seen, [{ forwardedTo: 'bailian/qwen3.8-flash', effort: 'off' }])
+  assert.deepEqual(seen, [{ forwardedTo: 'bailian/qwen3.8-flash', effort: undefined }])
 })
