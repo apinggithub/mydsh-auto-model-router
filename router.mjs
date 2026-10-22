@@ -67,6 +67,8 @@ export class ModelRouter {
     this.exhaustedRoutes = new Set()
     /** True while the account balance sits below the configured floor. */
     this.balanceLow = false
+    /** Providers paused by a per-provider balance floor (e.g. deepseek-official). */
+    this.blockedProviders = new Set()
     /** @type {Map<string, object>} */
     this.states = new Map()
   }
@@ -275,6 +277,28 @@ export class ModelRouter {
   }
 
   /**
+   * Pause every route of one provider (a provider whose own balance is below
+   * its floor). The rest of the ladder keeps working.
+   * @param {string} provider
+   * @param {boolean} blocked
+   */
+  setProviderBlocked(provider, blocked) {
+    if (typeof provider !== 'string' || provider === '') return
+    if (blocked) this.blockedProviders.add(provider)
+    else this.blockedProviders.delete(provider)
+  }
+
+  /** Whether a provider is paused by its own balance floor. */
+  isProviderBlocked(provider) {
+    return this.blockedProviders.has(provider)
+  }
+
+  /** Every provider currently paused, for the status report. */
+  blockedProviderList() {
+    return [...this.blockedProviders]
+  }
+
+  /**
    * Whether this route must not be dispatched to right now.
    * @param {object} route
    * @returns {boolean}
@@ -282,6 +306,7 @@ export class ModelRouter {
   routeBlocked(route) {
     if (!route) return true
     if (this.isRouteExhausted(route)) return true
+    if (this.isProviderBlocked(route.provider)) return true
     if (this.balanceLow && !this.isFreeRoute(route)) return true
     return false
   }

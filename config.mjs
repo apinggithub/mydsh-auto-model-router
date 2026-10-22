@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.3.0'
+export const PLUGIN_VERSION = '0.3.1'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -130,6 +130,12 @@ const DEFAULT_CONFIG = Object.freeze({
     balanceFloorCny: 10,
     // Retire a route whose model shows any spend in the current billing cycle.
     demoteOnSpend: true,
+    // Per-provider floor for DeepSeek's own platform balance (`/user/balance`),
+    // which no cloud bill covers. 0 disables it.
+    deepseekBalanceFloor: 0,
+    deepseekApiKeyRef: 'DEEPSEEK_API_KEY',
+    deepseekProvider: 'deepseek-official',
+    deepseekEndpoint: 'https://api.deepseek.com/user/balance',
     // Credential refs resolved through ctx.credentials (never inline secrets).
     accessKeyIdRef: 'ALIBABA_CLOUD_ACCESS_KEY_ID',
     accessKeySecretRef: 'ALIBABA_CLOUD_ACCESS_KEY_SECRET',
@@ -296,6 +302,22 @@ function normalizeQuotaWatch(quotaWatch) {
     ? Number(q.balanceFloorCny)
     : DEFAULT_CONFIG.quotaWatch.balanceFloorCny
   q.timeoutMs = clampInt(q.timeoutMs, 5_000, 120_000, DEFAULT_CONFIG.quotaWatch.timeoutMs)
+  q.deepseekBalanceFloor = Number.isFinite(Number(q.deepseekBalanceFloor)) && Number(q.deepseekBalanceFloor) >= 0
+    ? Number(q.deepseekBalanceFloor)
+    : DEFAULT_CONFIG.quotaWatch.deepseekBalanceFloor
+  q.deepseekApiKeyRef = String(q.deepseekApiKeyRef ?? '').trim()
+  q.deepseekProvider = String(q.deepseekProvider ?? '').trim()
+  q.deepseekEndpoint = String(q.deepseekEndpoint ?? '').trim() || DEFAULT_CONFIG.quotaWatch.deepseekEndpoint
+  if (q.deepseekBalanceFloor > 0) {
+    for (const [field, value] of [
+      ['deepseekApiKeyRef', q.deepseekApiKeyRef],
+      ['deepseekProvider', q.deepseekProvider],
+    ]) {
+      if (value === '') {
+        throw new Error(`mydsh-auto-model-router: quotaWatch.${field} must be a non-empty string when deepseekBalanceFloor is set`)
+      }
+    }
+  }
   if (q.enabled) {
     for (const [field, value] of [
       ['provider', q.provider],

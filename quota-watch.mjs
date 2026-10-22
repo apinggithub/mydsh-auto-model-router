@@ -102,6 +102,40 @@ export async function fetchBalance({ accessKeyId, accessKeySecret, timeoutMs = 2
   }
 }
 
+/**
+ * Read the DeepSeek platform balance (`GET /user/balance`).
+ *
+ * The `deepseek-official` provider bills against that account rather than any
+ * cloud bill, so it needs its own floor: the Aliyun watch cannot see it.
+ *
+ * @param {object} options
+ * @param {string} options.apiKey
+ * @param {string} [options.endpoint]
+ * @param {number} [options.timeoutMs]
+ * @param {Function} [options.fetchImpl]
+ */
+export async function fetchDeepSeekBalance({
+  apiKey,
+  endpoint = 'https://api.deepseek.com/user/balance',
+  timeoutMs = 20_000,
+  fetchImpl = fetch,
+}) {
+  const response = await fetchImpl(endpoint, {
+    headers: { authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  const body = JSON.parse(await response.text())
+  const infos = Array.isArray(body?.balance_infos) ? body.balance_infos : []
+  const cny = infos.find((info) => info?.currency === 'CNY') ?? infos[0]
+  return {
+    available: body?.is_available !== false,
+    totalCny: Number(cny?.total_balance ?? 0),
+    grantedCny: Number(cny?.granted_balance ?? 0),
+    toppedUpCny: Number(cny?.topped_up_balance ?? 0),
+    currency: cny?.currency ?? 'CNY',
+  }
+}
+
 /** Read one billing cycle, following NextToken until exhausted. */
 export async function fetchBill({
   accessKeyId,
@@ -146,6 +180,7 @@ export function createQuotaWatch({ config, router, credentials, logger, fetchImp
   let running = false
   const retired = new Set()
   let balanceWarned = false
+  let deepseekWarned = false
   let snapshot = {
     enabled: config.enabled === true,
     lastCheckAt: null,
@@ -156,6 +191,9 @@ export function createQuotaWatch({ config, router, credentials, logger, fetchImp
     totalCny: null,
     exhausted: [],
     balanceLow: false,
+    deepseekBalanceCny: null,
+    deepseekBlocked: false,
+    deepseekError: null,
   }
 
   async function readSecret(ref) {
@@ -201,6 +239,38 @@ export function createQuotaWatch({ config, router, credentials, logger, fetchImp
         }
       }
 
+      // DeepSeek bills against its own platform account, which the cloud bill
+      // never covers: give that provider its own floor.
+      let deepseekBalance = null
+      let deepseekError = null
+      const dsFloor = Number(config.deepseekBalanceFloor) || 0
+      if (dsFloor > 0) {
+        try {
+          const apiKey = await readSecret(config.deepseekApiKeyRef)
+          deepseekBalance = await fetchDeepSeekBalance({
+            apiKey,
+            endpoint: config.deepseekEndpoint,
+            timeoutMs: config.timeoutMs,
+            fetchImpl,
+          })
+          const blocked = deepseekBalance.totalCny < dsFloor
+          router.setProviderBlocked(config.deepseekProvider, blocked)
+          if (blocked && !deepseekWarned) {
+            deepseekWarned = true
+            logger?.warn?.(
+              `[mydsh-auto-model-router] ${config.deepseekProvider} balance ¥${deepseekBalance.totalCny.toFixed(2)} `
+              + `is below the ¥${dsFloor} floor: that provider is paused`,
+            )
+          } else if (!blocked && deepseekWarned) {
+            deepseekWarned = false
+            logger?.info?.(`[mydsh-auto-model-router] ${config.deepseekProvider} balance recovered: provider resumed`)
+          }
+        } catch (error) {
+          deepseekError = String(error?.message ?? error)
+          logger?.warn?.(`[mydsh-auto-model-router] deepseek balance check failed: ${deepseekError}`)
+        }
+      }
+
       if (config.demoteOnSpend) {
         for (const route of guardedRoutes()) {
           const spend = bill.byModel[route.model]
@@ -227,6 +297,9 @@ export function createQuotaWatch({ config, router, credentials, logger, fetchImp
         totalCny: bill.total,
         exhausted: router.exhaustedRouteKeys(),
         balanceLow: router.isBalanceLow(),
+        deepseekBalanceCny: deepseekBalance?.totalCny ?? null,
+        deepseekBlocked: router.isProviderBlocked(config.deepseekProvider),
+        deepseekError,
       }
     } catch (error) {
       snapshot = { ...snapshot, lastCheckAt: now().toISOString(), lastError: String(error?.message ?? error) }

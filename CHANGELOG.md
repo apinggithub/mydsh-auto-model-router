@@ -2,6 +2,23 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.3.1 — a floor for the DeepSeek platform balance
+
+The watchdog read the Aliyun bill, which never covers `deepseek-official`: that
+provider bills against the DeepSeek platform account, so its balance could drain
+with the watchdog reporting everything healthy.
+
+- `quotaWatch.deepseekBalanceFloor` (default 0, disabled) polls
+  `GET https://api.deepseek.com/user/balance` with the key resolved from
+  `deepseekApiKeyRef` and pauses **that provider only** while its balance is
+  below the floor. The rest of the ladder keeps routing.
+- `router.setProviderBlocked(provider, blocked)` is the new routing gate;
+  `routeBlocked()` now also refuses a paused provider.
+- `/status` reports `deepseekBalanceCny`, `deepseekBlocked` and `deepseekError`,
+  and a failing DeepSeek check never fails the whole poll.
+- Tests: two cases (blocked below the floor, untouched above it). 98 tests.
+
+
 ## 0.3.0 — the quota watchdog reads the bill
 
 A "free" tier is free only until the provider silently switches it to

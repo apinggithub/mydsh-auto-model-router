@@ -46,8 +46,17 @@ const CREDENTIALS = {
   },
 }
 
-function fetchStub({ balance = 28.21, items = [] } = {}) {
-  return async (url) => {
+function fetchStub({ balance = 28.21, items = [], deepseek = '158.50' } = {}) {
+  return async (url, options) => {
+    if (String(url).includes('/user/balance')) {
+      assert.match(String(options?.headers?.authorization), /^Bearer /)
+      return {
+        text: async () => JSON.stringify({
+          is_available: true,
+          balance_infos: [{ currency: 'CNY', total_balance: deepseek, granted_balance: '0.00', topped_up_balance: deepseek }],
+        }),
+      }
+    }
     const body = url.includes('QueryAccountBalance')
       ? { Success: true, Data: { AvailableAmount: String(balance), Currency: 'CNY' } }
       : { Success: true, Data: { Items: items, NextToken: undefined } }
@@ -128,4 +137,33 @@ test('a failing credential read is reported, not thrown', async () => {
   const snapshot = await watch.check()
   assert.match(String(snapshot.lastError), /credential|missing/i)
   assert.equal(router.isBalanceLow(), false)
+})
+
+test('the DeepSeek platform balance gets its own floor', async () => {
+  const router = makeRouter()
+  const watch = createQuotaWatch({
+    config: { ...WATCH_CONFIG, deepseekBalanceFloor: 200, deepseekProvider: 'deepseek-official' },
+    router,
+    credentials: CREDENTIALS,
+    fetchImpl: fetchStub({ deepseek: '158.50' }),
+  })
+  const snapshot = await watch.check()
+  assert.equal(snapshot.deepseekBalanceCny, 158.5)
+  assert.equal(snapshot.deepseekBlocked, true)
+  assert.equal(router.isProviderBlocked('deepseek-official'), true)
+  assert.equal(router.routeBlocked({ provider: 'deepseek-official', model: 'deepseek-flash' }), true)
+  assert.equal(router.routeBlocked({ provider: 'zhipu', model: 'glm-4.5-flash' }), false)
+})
+
+test('a healthy DeepSeek balance leaves the provider alone', async () => {
+  const router = makeRouter()
+  const watch = createQuotaWatch({
+    config: { ...WATCH_CONFIG, deepseekBalanceFloor: 10, deepseekProvider: 'deepseek-official' },
+    router,
+    credentials: CREDENTIALS,
+    fetchImpl: fetchStub({ deepseek: '158.50' }),
+  })
+  const snapshot = await watch.check()
+  assert.equal(snapshot.deepseekBlocked, false)
+  assert.equal(router.isProviderBlocked('deepseek-official'), false)
 })
