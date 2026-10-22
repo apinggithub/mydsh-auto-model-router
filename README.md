@@ -63,10 +63,12 @@ LLM dispatch
 | `L2` | writing code, review, refactoring | strong |
 | `L3` | complex bug fixes, multi-step tasks, reports | most powerful |
 
-Each level is a user-assigned provider/model route with a **required**
-`reasoningEffort` (defaults to `off` when omitted): `off` = no thinking mode,
-`high`/`max` = thinking intensity. Levels may be left unconfigured; the router
-then falls to the nearest configured level (direction depends on the cost
+Each level is a user-assigned provider/model route with an **optional**
+`reasoningEffort`: omitting it (or writing `null`) sends no effort at all —
+required for models without a thinking mode (GLM/Qwen flash), which the host
+otherwise rejects; `off` explicitly disables thinking; `high`/`max` set its
+intensity. Levels may be left unconfigured; the router then falls to the nearest
+configured level (direction depends on the cost
 mode).
 
 ## Auto mode in the model selector

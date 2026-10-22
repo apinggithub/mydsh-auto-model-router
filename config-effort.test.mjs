@@ -9,12 +9,21 @@ import assert from 'node:assert/strict'
 
 import { resolveConfig } from './config.mjs'
 
-test('a level without an effort field defaults to off', () => {
+test('a level without an effort field stays without one', () => {
   const config = resolveConfig({ levels: { L1: { provider: 'p', model: 'm' } } })
-  assert.equal(config.levels.L1.reasoningEffort, 'off')
+  assert.equal('reasoningEffort' in config.levels.L1, false)
 })
 
-test('reasoningEffort: null omits the field instead of defaulting to off', () => {
+test('normalising twice does not resurrect an omitted effort', () => {
+  // apply() resolves the config a second time; the old 'off' default turned an
+  // omitted effort back into 'off' here, which the host then rejected for
+  // models without a thinking mode.
+  const once = resolveConfig({ levels: { L1: { provider: 'zhipu', model: 'glm-4-flash', reasoningEffort: null } } })
+  const twice = resolveConfig(once)
+  assert.equal('reasoningEffort' in twice.levels.L1, false)
+})
+
+test('reasoningEffort: null omits the field', () => {
   const config = resolveConfig({ levels: { L1: { provider: 'zhipu', model: 'glm-4-flash', reasoningEffort: null } } })
   assert.equal('reasoningEffort' in config.levels.L1, false)
   assert.equal(config.levels.L1.provider, 'zhipu')

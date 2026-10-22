@@ -22,7 +22,7 @@
 //   fallbackChain:  [route, ...]  (model-level, appended with the default)
 //   maxRetries:     per-route retry budget on request-error
 
-export const PLUGIN_VERSION = '0.3.3'
+export const PLUGIN_VERSION = '0.3.4'
 
 export const LEVEL_IDS = Object.freeze(['L0', 'L1', 'L2', 'L3'])
 export const COST_MODES = Object.freeze(['cost-first', 'quality-first', 'balanced'])
@@ -382,13 +382,14 @@ function normalizeLevels(levels) {
 }
 
 function normalizeLevelRoute(route, where) {
-  // `reasoningEffort: null` means "this route has no thinking mode at all":
-  // the field is omitted so a provider whose model declares no reasoning
-  // metadata (Zhipu/Bailian flash models) is not rejected with
-  // UNSUPPORTED_REASONING_EFFORT.
-  const omitEffort = route.reasoningEffort === null
+  // A level states a reasoning effort only when the config states one.
+  //
+  // This used to default to 'off', which broke twice over: providers whose
+  // models have no thinking mode (GLM/Qwen flash) reject *any* effort with
+  // UNSUPPORTED_REASONING_EFFORT, and `apply()` normalises the config a second
+  // time, so an omitted field came back as 'off' even when the config had said
+  // `null`. Absent now stays absent, which makes normalisation idempotent.
   const normalized = normalizeRoute(route, where)
-  // Every other level carries an explicit effort; absent → 'off' (no thinking).
   const contextWindow = route.contextWindow === undefined || route.contextWindow === null
     ? undefined
     : Number(route.contextWindow)
@@ -397,7 +398,6 @@ function normalizeLevelRoute(route, where) {
   }
   return {
     ...normalized,
-    ...omitEffort ? {} : { reasoningEffort: normalized.reasoningEffort ?? 'off' },
     // A level may declare that its route is a free-quota route. The flag rides
     // along with the route so the router can prefer/demote it.
     ...route.freeQuota === true ? { freeQuota: true } : {},

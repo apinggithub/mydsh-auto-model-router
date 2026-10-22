@@ -2,6 +2,31 @@
 
 Behaviour-visible changes only; see the commits for the full diff.
 
+## 0.3.4 — an omitted effort stays omitted
+
+Auto failed with `provider "zhipu" model "glm-4.7-flash" does not support
+reasoning effort "off"` even though the level was configured with
+`reasoningEffort: null`.
+
+`apply()` normalises the config a second time, and normalisation defaulted an
+absent effort back to `off` — so `null` survived the first pass and was undone by
+the second. Two fixes, both needed:
+
+- `normalizeLevelRoute` no longer defaults to `off`: absent (or `null`) stays
+  absent, which makes normalisation idempotent.
+- The `agent/request` rewrite drops the **inherited** effort before applying the
+  level's. The host's model-selection listener re-applies the session's effort on
+  every step, so a proposal for `auto/auto` arrives carrying the UI value; simply
+  spreading it through routed it to a model that has no thinking mode.
+
+Behaviour change: a level that omits `reasoningEffort` now sends none (provider
+default) instead of `off`. Set `reasoningEffort: off` explicitly to keep the old
+behaviour on thinking-capable models. Docs updated (zh + en).
+
+- Tests: `config-effort.test.mjs` covers the double-normalisation, and
+  `host-wiring.test.mjs` covers the inherited-effort drop. 104 tests.
+
+
 ## 0.3.3 — check the patch before the host has to
 
 A missing newline in `cordis.patch.yml` (a `- { … }` entry glued to the next

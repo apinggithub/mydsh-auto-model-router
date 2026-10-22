@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 
 import { apply, name, inject } from './index.mjs'
 import { createAutoAdapter } from './auto-adapter.mjs'
+import { resolveConfig } from './config.mjs'
 
 const GLM = { provider: 'glm', model: 'glm-4.7-flash' }
 const DS = { provider: 'deepseek-account', model: 'deepseek-flash' }
@@ -162,6 +163,29 @@ test('a real model choice passes through untouched', async () => {
   await input(emit, agent, 'hi')
   const decision = await request(emit, agent, { provider: 'qianwen', model: 'qwen3.8-flash' })
   assert.deepEqual(decision, { provider: 'qianwen', model: 'qwen3.8-flash' })
+})
+
+test('an inherited effort is dropped when the level declares none', async () => {
+  // The host's selection listener re-applies the session's effort on every
+  // step, so an auto/auto proposal arrives carrying `reasoningEffort: "off"`.
+  // Routing it to a model with no thinking mode must clear the field, or the
+  // host rejects the call with UNSUPPORTED_REASONING_EFFORT.
+  const { ctx, emit } = mockCtx()
+  apply(ctx, resolveConfig({
+    levels: {
+      L0: { provider: 'zhipu', model: 'glm-4.7-flash', reasoningEffort: null },
+      L1: { provider: 'zhipu', model: 'glm-4.7-flash', reasoningEffort: null },
+      L2: { provider: 'zhipu', model: 'glm-4.7-flash', reasoningEffort: null },
+      L3: { provider: 'zhipu', model: 'glm-4.7-flash', reasoningEffort: null },
+    },
+  }))
+  const agent = mockAgent()
+  await emit('agent/session-start')[0]({ agent })
+  await input(emit, agent, 'hi')
+  const decision = await request(emit, agent, { provider: 'auto', model: 'auto', reasoningEffort: 'off' })
+  assert.equal(decision.provider, 'zhipu')
+  assert.equal(decision.model, 'glm-4.7-flash')
+  assert.equal('reasoningEffort' in decision, false)
 })
 
 test('the status route is still claimed on contexts without scoped injection', () => {

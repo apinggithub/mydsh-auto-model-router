@@ -294,8 +294,29 @@ export function apply(ctx, input = {}) {
     }
   })
 
-  // ── ★ agent/request: reuse the per-input decision ──────────────────────
-  // Only a NEW user input triggers a fresh decision (and only when the
+  /**
+   * Rewrite a host proposal onto one routed model.
+   *
+   * The incoming proposal still carries the *session's* reasoning effort — the
+   * host's model-selection listener re-applies it on every step — and that
+   * value belongs to the virtual `auto` model, not to the model we route to.
+   * Spreading it through sends a thinking parameter to a model that has no
+   * thinking mode, and the host rejects the request with
+   * `provider "zhipu" model "glm-4.7-flash" does not support reasoning effort "off"`.
+   * So the inherited effort is dropped unless the level itself declares one.
+   *
+   * @param {object} proposed - config from the host's own waterfall
+   * @param {object} route - the level's route
+   * @returns {object} the rewritten config
+   */
+  const withRoute = (proposed, route) => {
+    const next = { ...proposed, provider: route.provider, model: route.model }
+    delete next.reasoningEffort
+    if (route.reasoningEffort !== undefined) next.reasoningEffort = route.reasoningEffort
+    return next
+  }
+
+  // ── ★ agent/request: reuse the per-input decision ──────────────────────  // Only a NEW user input triggers a fresh decision (and only when the
   // session picked the virtual auto provider). Steps within the same input
   // reuse state.current — no per-step re-judging, no per-step classifier.
   ctx.on('agent/request', async (payload, next) => {
@@ -333,15 +354,13 @@ export function apply(ctx, input = {}) {
           }
           // fallback: user dismissed → stay in heuristic mode.
           const route = router.current(sessionId)
-          return { ...proposed, provider: route.provider, model: route.model,
-            ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort } }
+          return withRoute(proposed, route)
         }
         if (decision.needsAsk === 'fixed-reelect') {
           const picked = await askFixedLevel(ctx, agentOf(payload), router, sessionId)
           if (picked) router.setMode(sessionId, 'fixed', { fixedLevel: picked })
           const route = router.current(sessionId)
-          return { ...proposed, provider: route.provider, model: route.model,
-            ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort } }
+          return withRoute(proposed, route)
         }
       }
 
@@ -363,15 +382,7 @@ export function apply(ctx, input = {}) {
       if (demotion && config.freeQuota.notify) {
         await notifyFreeQuotaFallback(agentOf(payload), sessionId, demotion, resolveLocale(ctx))
       }
-      return {
-        ...proposed,
-        provider: route.provider,
-        model: route.model,
-        // A level that omits `reasoningEffort` (configured as `null`) has no
-        // thinking mode: sending an effort to a model without reasoning
-        // metadata would be rejected with UNSUPPORTED_REASONING_EFFORT.
-        ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
-      }
+      return withRoute(proposed, route)
     } catch (error) {
       // The router must never be able to fail a user request: hand the host's
       // own proposal back untouched and surface the reason once.
