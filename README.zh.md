@@ -385,37 +385,155 @@ contextGuard: { enabled: true, headroom: 0.85 }
 
 ## 部署到其它电脑
 
-一台机器 = 两条命令（本仓库含两个插件）：
+一台机器 = 三条命令（本仓库含两个插件）：
 
 ```powershell
-git clone https://github.com/apinggithub/mydsh-auto-model-router
-cd mydsh-auto-model-router; cd ..
-# 宿主 0.2.x 会因插件 peer 钉死旧版本而拒装，先授予精确版本豁免（每个新版本各授一次）：
-dsh plugin --profile desktop allow-version '@apinggithub/mydsh-auto-model-router@0.1.1' --dsh-version 0.2.0-rc.2 --accept-risk
-dsh plugin --profile desktop add ./mydsh-auto-model-router
-dsh plugin --profile desktop add ./mydsh-auto-model-router/tier-cost   # 可选：按档位拆账
+# 1. 从 npm 装（推荐；peer 范围已放宽为宿主自适应，不需要 allow-version 豁免）
+dsh plugin --profile desktop add '@apinggithub/mydsh-auto-model-router@0.3.1'
+
+# 2. 可选：按档位拆账
+dsh plugin --profile desktop add '@apinggithub/dsh-tier-cost@0.1.0'
+
+# 3. 重启 DSH（bundle 只在启动时组合；配置改动用热加载即可）
 ```
 
-然后在该机器的 `profiles/<profile>/cordis.patch.yml` 里写完整档位块，**provider/model 必须
-是那条机器自己能用的路由，别照抄 id**：
+也可以从源码装：`git clone …` 后 `dsh plugin --profile desktop add ./mydsh-auto-model-router`。
+
+### 每台机器必须自带档位块
+
+插件的出厂默认档位是**历史值**（`deepseek-official/deepseek-flash`），这台机器上不一定可用。
+装完在该机器 `profiles/<profile>/cordis.patch.yml` 末尾写自己的档位块，
+**provider/model 必须是那条机器真实可用的路由，别照抄 id**：
 
 ```yaml
 - id: mydsh-auto-model-router-runtime
   name: '@apinggithub/mydsh-auto-model-router'
   config:
     levels:
-      L0: { provider: ..., model: ..., reasoningEffort: off,  contextWindow: ..., freeQuota: true }
-      L1: { provider: ..., model: ..., reasoningEffort: low,   contextWindow: ..., freeQuota: true }
-      L2: { provider: ..., model: ..., reasoningEffort: high,  contextWindow: ..., freeQuota: true }
-      L3: { provider: ..., model: ..., reasoningEffort: max,   contextWindow: ... }
+      # reasoningEffort: null = 该模型没有思考能力（Qwen/GLM flash 都是），必须写 null，
+      # 否则宿主会以 UNSUPPORTED_REASONING_EFFORT 拒绝请求。
+      L0: { provider: zhipu, model: glm-4.7-flash, reasoningEffort: null, freeQuota: true }
+      L1: { provider: zhipu, model: glm-4.5-flash, reasoningEffort: null, freeQuota: true }
+      L2: { provider: zhipu, model: glm-4-flash,   reasoningEffort: null }
+      L3: { provider: deepseek-official, model: deepseek-flash, reasoningEffort: max }
+    freeQuota:   { enabled: true, demoteOnError: true, notify: true }
     contextGuard: { enabled: true, headroom: 0.85 }
-    freeQuota:    { enabled: true, demoteOnError: true, notify: true }
+    quotaWatch:  { enabled: true, provider: bailian-dell-vostro, balanceFloorCny: 10 }
 ```
 
-⚠️ 内置默认 levels 是历史值（`deepseek-v4-flash` + `medium`），在 0.2.x 宿主上**两者都不是
-合法值**——新机器必须自带档位块，否则选 Auto 会直接失败。
-`tier-cost` 对宿主其余部分零依赖：缺路由插件时全部归 manual/unknown，缺计费插件时只统计
-token、费用记 0，均会在面板 notes 里说明。
+provider 本身要在 `cordis.patch.yml` 里先定义好（`llm-pi-ai` 的 `providers:` 段），
+密钥通过 DSH 凭据库或 `apiKeyEnv` 提供。
+
+**多机同账号的注意点**：额度与余额都在**服务端**，所以本机累计的 token 数不参与判断——
+`quotaWatch` 读的是云端账单/余额。但**每台机器都要各自配置一次**（凭据库不跨机同步）。
+
+## 额度看门狗（quotaWatch）
+
+### 它解决什么问题
+
+免费额度耗尽后，服务商**未必报错**——可能静默转按量计费。那时 `demoteOnError` 无错可捕，
+路由会一直烧钱（见文末「静默计费陷阱」）。看门狗改读**账单**，一旦某个"免费"模型出现花费，
+30 分钟内把它摘掉。
+
+### 它能看见什么
+
+| 数据源 | 能拿到 | 限制 |
+| --- | --- | --- |
+| `QueryAccountBalance` | 账户可用余额（¥） | 准实时 |
+| `DescribeInstanceBill` | 按模型拆分的当期花费 | **T+1 延迟** |
+| `QueryResourcePackageInstances` | 资源包余量 | 无资源包时为空 |
+| DeepSeek `GET /user/balance` | 开放平台余额 | 准实时 |
+
+**没有**"查询免费额度剩余"的公开接口——那个进度条只在服务商控制台里。
+所以看门狗的语义是**发现即降级**，不是提前拦截；真正的超前拦截仍要靠服务商侧的「用完即停」。
+
+### 配置
+
+```yaml
+quotaWatch:
+  enabled: true
+  provider: bailian-dell-vostro      # 账单描述的是哪个已配置 provider（要摘的路由）
+  productCode: sfm                   # 百炼在阿里云账单里的商品码
+  pollMs: 1800000                    # 轮询间隔，最小 60000
+  balanceFloorCny: 10                # 阿里云余额低于此值 → 暂停所有付费档；0 = 关闭
+  demoteOnSpend: true                # 某模型出现花费 → 摘掉它的路由
+  deepseekBalanceFloor: 10           # DeepSeek 平台余额低于此值 → 只暂停 deepseek-official；0 = 关闭
+  deepseekApiKeyRef: DEEPSEEK_API_KEY
+  accessKeyIdRef: ALIBABA_CLOUD_ACCESS_KEY_ID
+  accessKeySecretRef: ALIBABA_CLOUD_ACCESS_KEY_SECRET
+  timeoutMs: 20000
+```
+
+### 阿里云 RAM 子账号怎么开（重要）
+
+**不要用主账号 AccessKey。** 正确的做法：
+
+1. 阿里云控制台 → **RAM 访问控制** → 用户 → 创建用户，勾选**只允许编程访问**；
+2. 给它**只读账单权限**：直接附加系统策略 `AliyunBSSReadOnlyAccess`；
+   想更小可用自定义策略，只允许这几个 Action：
+   `bss:QueryAccountBalance`、`bss:DescribeInstanceBill`、`bss:QueryResourcePackageInstances`；
+3. 创建 **AccessKey**，把 ID/Secret 存进 DSH 凭据库（见下），**不要再给它任何写权限**；
+4. 验证（只读，不花钱）：
+
+```powershell
+$ak = (Resolve the ID);  $sk = (Resolve the secret)
+# 期望返回 {"Success":true,"Data":{"AvailableAmount":"..."}}
+```
+
+> AccessKey **Secret 不要写进 `cordis.patch.yml`，也不要提交进仓库**——配置文件里只有
+> `accessKeyIdRef` / `accessKeySecretRef` 这样的**引用名**。
+
+### 凭据放哪里
+
+看门狗通过 `ctx.credentials.resolve(ref)` 读取，所以密钥存在 **DSH 凭据库**
+（`$DSH_HOME/.credentials.yaml`，与 provider 的 API key 同一个文件），形如：
+
+```yaml
+refs:
+  ALIBABA_CLOUD_ACCESS_KEY_ID: LTAI...
+  ALIBABA_CLOUD_ACCESS_KEY_SECRET: ...
+  DEEPSEEK_API_KEY: sk-...
+```
+
+两种写入方式，任选：
+
+- **GUI**：插件 → 内置插件设置 → Models / 凭据，按 API key 的方式存（键名用上面的 ref 名）；
+- **命令行**（secret 不进 shell 历史，也不进对话）：
+
+```powershell
+$sec = Read-Host -AsSecureString 'Paste AccessKey Secret'
+$plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+# 写入 $DSH_HOME/.credentials.yaml 的 refs 段后，立即删除任何临时明文文件
+```
+
+⚠️ **多机部署**：每台机器都要各自配置一次凭据（凭据库不跨机同步）。
+额度/余额在服务端，所以多机读到的数字一致，不存在方案 A 那种"各机各算、互不知情"的偏差。
+
+### 状态接口
+
+`GET /api/mydsh-auto-model-router/status` 的 `quotaWatch` 字段：
+
+```json
+{
+  "enabled": true,
+  "lastCheckAt": "2026-10-22T09:57:18Z",
+  "lastError": null,
+  "balanceCny": 28.21,
+  "cycle": "2026-10",
+  "spendByModel": { "glm-5.3": 62.5611, "qwen3.8-flash": 8.0478 },
+  "totalCny": 70.67,
+  "exhausted": [],
+  "balanceLow": false,
+  "deepseekBalanceCny": 158.25,
+  "deepseekBlocked": false,
+  "deepseekError": null
+}
+```
+
+任何一环失败都只写进 `lastError` / `deepseekError`，**不会**影响路由本身。
+
+## 发布到 npm
 
 ### 目录新鲜度守卫（modelsGuard）
 

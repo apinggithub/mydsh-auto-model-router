@@ -432,39 +432,148 @@ contextGuard: { enabled: true, headroom: 0.85 }
 
 ## Deploying to another machine
 
-One machine = two commands (this repository ships both plugins):
+One machine = three commands (this repository ships both plugins):
 
 ```powershell
-git clone https://github.com/apinggithub/mydsh-auto-model-router
-cd mydsh-auto-model-router; cd ..
-# On 0.2.x hosts the plugin's stale pinned peers make the installer refuse; grant the
-# exact-version exemption first (per new plugin version):
-dsh plugin --profile desktop allow-version '@apinggithub/mydsh-auto-model-router@0.1.1' --dsh-version 0.2.0-rc.2 --accept-risk
-dsh plugin --profile desktop add ./mydsh-auto-model-router
-dsh plugin --profile desktop add ./mydsh-auto-model-router/tier-cost   # optional: per-tier cost panel
+# 1. Install from npm (peer ranges are host-adaptive; no allow-version exemption needed)
+dsh plugin --profile desktop add '@apinggithub/mydsh-auto-model-router@0.3.1'
+
+# 2. Optional: per-tier cost panel
+dsh plugin --profile desktop add '@apinggithub/dsh-tier-cost@0.1.0'
+
+# 3. Restart DSH once (bundles are composed at boot; config edits hot-reload)
 ```
 
-Then write a full levels block into that machine's `profiles/<profile>/cordis.patch.yml` —
-provider/model must be routes **that machine** can actually use (do not copy ids across machines):
+From source instead: `git clone …` then `dsh plugin --profile desktop add ./mydsh-auto-model-router`.
+
+### Every machine ships its own levels block
+
+The factory defaults are legacy routes that may not exist on that machine. Write your own
+block at the end of `profiles/<profile>/cordis.patch.yml` — provider/model must be routes
+**that machine** can actually use (do not copy ids across machines):
 
 ```yaml
 - id: mydsh-auto-model-router-runtime
   name: '@apinggithub/mydsh-auto-model-router'
   config:
     levels:
-      L0: { provider: ..., model: ..., reasoningEffort: off,  contextWindow: ..., freeQuota: true }
-      L1: { provider: ..., model: ..., reasoningEffort: low,   contextWindow: ..., freeQuota: true }
-      L2: { provider: ..., model: ..., reasoningEffort: high,  contextWindow: ..., freeQuota: true }
-      L3: { provider: ..., model: ..., reasoningEffort: max,   contextWindow: ... }
-    contextGuard: { enabled: true, headroom: 0.85 }
+      # reasoningEffort: null = the model has no thinking mode (Qwen/GLM flash have none).
+      # Must be null, otherwise the host rejects the request with UNSUPPORTED_REASONING_EFFORT.
+      L0: { provider: zhipu, model: glm-4.7-flash, reasoningEffort: null, freeQuota: true }
+      L1: { provider: zhipu, model: glm-4.5-flash, reasoningEffort: null, freeQuota: true }
+      L2: { provider: zhipu, model: glm-4-flash,   reasoningEffort: null }
+      L3: { provider: deepseek-official, model: deepseek-flash, reasoningEffort: max }
     freeQuota:    { enabled: true, demoteOnError: true, notify: true }
+    contextGuard: { enabled: true, headroom: 0.85 }
+    quotaWatch:   { enabled: true, provider: bailian-dell-vostro, balanceFloorCny: 10 }
 ```
 
-⚠️ The built-in default levels carry legacy values (`deepseek-v4-flash` + `medium`) that are
-both invalid on 0.2.x hosts — a fresh machine must ship its own levels block or Auto fails
-outright. `tier-cost` has zero hard dependencies beyond the host: without the router every
-turn folds into manual/unknown, without the billing plugin tokens are counted and cost
-stays 0 — both cases self-report in the panel notes.
+The providers themselves must already be configured in `cordis.patch.yml` (`llm-pi-ai`'s
+`providers:` section), with keys in the DSH credential store or an `apiKeyEnv`.
+
+`tier-cost` has zero hard dependencies beyond the host: without the router every turn folds
+into manual/unknown, without the billing plugin tokens are counted and cost stays 0 — both
+cases self-report in the panel notes.
+
+**Multi-machine, same account**: quotas and balances live on the provider's side, so nothing
+is accumulated locally — `quotaWatch` reads the cloud bill. But each machine configures its own
+credentials (the store does not sync).
+
+## Quota watchdog (quotaWatch)
+
+### What it fixes
+
+An exhausted free tier does not always produce an error: the provider may silently switch it to
+pay-as-you-go. `demoteOnError` has nothing to catch then, and the route keeps spending (see
+[the silent-billing trap](#the-silent-billing-trap-of-free-quota-real-incident--rules)). The
+watchdog reads the **bill** instead and retires a "free" model within one poll.
+
+### What it can see
+
+| Source | Gives | Limit |
+| --- | --- | --- |
+| `QueryAccountBalance` | available balance (CNY) | near real-time |
+| `DescribeInstanceBill` | spend per model for the cycle | **T+1** |
+| `QueryResourcePackageInstances` | resource-package remainder | empty when none exist |
+| DeepSeek `GET /user/balance` | platform balance | near real-time |
+
+There is **no** public "remaining free quota" API — that progress bar only exists in the
+provider console. So the semantics are *detect and demote*, not *block in advance*; the real
+guard against overspend is still the provider-side "stop when exhausted" switch.
+
+### Configuration
+
+```yaml
+quotaWatch:
+  enabled: true
+  provider: bailian-dell-vostro      # which configured provider the bill describes
+  productCode: sfm                   # 百炼's product code on the Aliyun bill
+  pollMs: 1800000                    # 30 min (minimum 60000)
+  balanceFloorCny: 10                # below this Aliyun balance, every paid level pauses; 0 = off
+  demoteOnSpend: true                # any spend on a guarded model retires its route
+  deepseekBalanceFloor: 10           # below this, only deepseek-official pauses; 0 = off
+  deepseekApiKeyRef: DEEPSEEK_API_KEY
+  accessKeyIdRef: ALIBABA_CLOUD_ACCESS_KEY_ID
+  accessKeySecretRef: ALIBABA_CLOUD_ACCESS_KEY_SECRET
+  timeoutMs: 20000
+```
+
+### Aliyun RAM: how to grant the least privilege
+
+**Never use the root account's AccessKey.** Instead:
+
+1. Console → **RAM** → Users → create a user with **programmatic access only**;
+2. Give it **read-only billing**: attach the system policy `AliyunBSSReadOnlyAccess`, or a custom
+   policy allowing just `bss:QueryAccountBalance`, `bss:DescribeInstanceBill`,
+   `bss:QueryResourcePackageInstances`;
+3. Create an **AccessKey** and store it in the DSH credential store — nothing else, no write scope;
+4. The plugin only ever issues two GETs per poll.
+
+> Never put the AccessKey **secret** in `cordis.patch.yml`, and never commit it. The config
+> carries reference names (`accessKeyIdRef` / `accessKeySecretRef`) only.
+
+### Where credentials live
+
+The watchdog resolves them through `ctx.credentials.resolve(ref)`, i.e. the **DSH credential
+store** (`$DSH_HOME/.credentials.yaml`, the same file that holds provider API keys):
+
+```yaml
+refs:
+  ALIBABA_CLOUD_ACCESS_KEY_ID: LTAI...
+  ALIBABA_CLOUD_ACCESS_KEY_SECRET: ...
+  DEEPSEEK_API_KEY: sk-...
+```
+
+Two ways to write it:
+
+- **GUI**: Plugins → built-in plugin settings → Models / credentials, using the ref names above;
+- **Command line** (keeps the secret out of shell history and out of any chat):
+
+```powershell
+$sec = Read-Host -AsSecureString 'Paste AccessKey Secret'
+$plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+# write it into $DSH_HOME/.credentials.yaml, then delete any temporary plaintext file
+```
+
+⚠️ **Multi-machine**: configure credentials once per machine. Quotas and balances live on the
+provider side, so every machine reads the same numbers.
+
+### Status
+
+`GET /api/mydsh-auto-model-router/status` → `quotaWatch`:
+
+```json
+{
+  "enabled": true, "lastCheckAt": "2026-10-22T09:57:18Z", "lastError": null,
+  "balanceCny": 28.21, "cycle": "2026-10",
+  "spendByModel": { "glm-5.3": 62.5611, "qwen3.8-flash": 8.0478 },
+  "totalCny": 70.67, "exhausted": [], "balanceLow": false,
+  "deepseekBalanceCny": 158.25, "deepseekBlocked": false, "deepseekError": null
+}
+```
+
+Any step that fails lands in `lastError` / `deepseekError` and never breaks routing.
 
 ### Catalog freshness guard (modelsGuard)
 
